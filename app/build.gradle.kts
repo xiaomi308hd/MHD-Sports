@@ -4,19 +4,31 @@ plugins {
 }
 
 android {
-    namespace = "com.sportsplayer.app"
+    namespace = "com.mhd.sports"
     compileSdk = 34
+    signingConfigs {
+        // Khoá cố định: mọi bản build cùng chữ ký nên cài đè (cập nhật) được.
+        // Dùng cá nhân thì để vậy; muốn phát hành công khai hãy đổi sang keystore riêng + GitHub Secrets.
+        create("release") {
+            storeFile = file("sportsplayer.jks")
+            storePassword = "sportsplayer"
+            keyAlias = "sportsplayer"
+            keyPassword = "sportsplayer"
+        }
+    }
     defaultConfig {
-        applicationId = "com.sportsplayer.app"
+        applicationId = "com.mhd.sports"
         minSdk = 21          // chạy được cả điện thoại lẫn TV Android 5.0+
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // CI truyền -PversionCode=<số lần build> để app so sánh với bản mới nhất trên GitHub
+        val code = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionCode = code
+        versionName = "1.$code"
     }
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug") // ký tạm để cài được ngay
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
