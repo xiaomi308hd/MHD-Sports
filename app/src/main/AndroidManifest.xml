@@ -6,6 +6,8 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
         android:label="MHD Sports"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
