@@ -7,6 +7,9 @@ Tên gói: `com.mhd.sports`
 ## Tính năng
 - Nhập link cá nhân (nút **Nhập link**), ô nhập có dòng chờ: *nhập link của bạn để tôi có thể nhận biết*
 - Gắn sẵn link trực tiếp: sửa `DEFAULT_SOURCE_URL` trong `app/src/main/java/com/mhd/sports/Models.kt`
+- Giao diện liquid glass tông đen cam, nền sân vận động lấy từ ảnh thumbnail đã bỏ chữ (`res/drawable-nodpi/bg_stadium.jpg`)
+- Trận đang phát hiện đồng hồ đếm phút:giây tính từ giờ bắt đầu
+- Nút **Sắp xếp**: ghim, Lên/Xuống, **Ẩn/Hiện** từng nhóm
 - Nhóm xếp theo hàng ngang, mỗi kênh/trận là 1 thumbnail
 - Đồng hồ ngày giờ đầy đủ; mỗi 30 giây tự lọc theo giờ hiện tại
 - Trận đang diễn ra có tem **● TRỰC TIẾP** ở góc phải thumbnail; trận sắp tới hiện giờ bắt đầu; trận đã qua tự ẩn (tắt công tắc "Lọc theo giờ" để xem lại tất cả)
@@ -25,7 +28,7 @@ M3U: dùng `group-title`, `tvg-logo`, và (tuỳ chọn) `start="..."` trong dò
 ## Nút Cập nhật
 1. Sửa `GITHUB_REPO` trong `Models.kt` thành `tên-tài-khoản/tên-repo` (repo để **Public**).
 2. Mỗi lần bạn push code lên `main`, GitHub Actions tự build và tạo một bản phát hành mới (`build-N`).
-3. Trong app, nút **Cập nhật** tự báo "(có bản mới)" khi mở app; bấm vào để tải và cài đè.
+3. Khi có bản mới, app tự hiện thông báo **Có bản mới · Cập nhật** ở góc phải dưới (không có nút cố định). Bấm vào để tải và cài đè.
 Lần đầu cần bật "Cho phép cài từ nguồn không rõ" cho ứng dụng. Các bản build từ nay đều cùng khoá ký nên cập nhật đè bình thường.
 
 ## Build APK bằng GitHub
