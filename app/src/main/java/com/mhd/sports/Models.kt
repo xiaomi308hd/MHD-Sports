@@ -2,10 +2,10 @@ package com.mhd.sports
 
 object Config {
     /** Gắn link trực tiếp tại đây (m3u8 / m3u / JSON, link rút gọn cũng được). Để trống nếu muốn người dùng tự nhập. */
-    const val DEFAULT_SOURCE_URL = ""
+    const val DEFAULT_SOURCE_URL = "http://tinyurl.com/ttthethao6"
 
     /** Repo GitHub chứa bản phát hành, dạng "tên-tài-khoản/tên-repo" (repo phải để Public). Dùng cho nút Cập nhật. */
-    const val GITHUB_REPO = "your-name/MHDSports"
+    const val GITHUB_REPO = "https://github.com/xiaomi308hd/MHD-Sports"
 
     /** Dòng chờ hiển thị trong ô nhập link. */
     const val LINK_HINT = "nhập link của bạn để tôi có thể nhận biết"
