@@ -4,22 +4,23 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.HorizontalScrollView
-import android.widget.Toast
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SwitchCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -29,26 +30,36 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
+    private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+    private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
     private lateinit var tvDate: TextView
     private lateinit var tvTime: TextView
     private lateinit var tvStatus: TextView
     private lateinit var content: LinearLayout
-    private lateinit var btnUpdate: Button
+    private lateinit var chipFilter: TextView
+    private lateinit var pillUpdate: TextView
 
     private var all: List<Channel> = emptyList()
     private var lastSig = ""
+    private var secs = 0
+    private var pending: Updater.Release? = null
+    private var downloading = false
+    private val adapters = mutableListOf<ChannelAdapter>()
+
     private val dateFmt = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi", "VN"))
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
-    // Mỗi giây cập nhật đồng hồ; mỗi 30 giây tự lọc lại trận theo giờ hiện tại
+    // Mỗi giây: cập nhật đồng hồ, lọc lại trận theo giờ, đếm phút:giây trận đang phát
     private val tick = object : Runnable {
         override fun run() {
             val now = Date()
             tvDate.text = dateFmt.format(now)
             tvTime.text = timeFmt.format(now)
-            if (now.time / 1000 % 30 == 0L) render()
+            render()
+            if (++secs % 1800 == 0) checkUpdate()
             ui.postDelayed(this, 1000 - now.time % 1000)
         }
     }
@@ -59,54 +70,101 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("p", MODE_PRIVATE)
 
-        val root = LinearLayout(this).apply {
+        val root = FrameLayout(this)
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.bg_stadium); scaleType = ImageView.ScaleType.CENTER_CROP
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0x66000000, 0x40000000, 0xCC000000.toInt())
+            )
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0F1115.toInt())
-            setPadding(dp(16), dp(12), dp(16), 0)
+            setPadding(dp(18), dp(14), dp(18), 0)
         }
-        val bar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+
+        // ---- thanh trên: đồng hồ + nút chức năng (kính) ----
+        val bar = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = Glass.glass(this@MainActivity, 24f)
+            setPadding(dp(18), dp(10), dp(12), dp(10))
+        }
         val clock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        tvDate = TextView(this).apply { setTextColor(0xFFB0B8C4.toInt()); textSize = 14f }
+        tvDate = TextView(this).apply { setTextColor(Glass.AMBER); textSize = 13f }
         tvTime = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 30f; setTypeface(typeface, Typeface.BOLD)
         }
         clock.addView(tvDate); clock.addView(tvTime)
-        bar.addView(clock, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(clock, LinearLayout.LayoutParams(WRAP, WRAP))
 
-        val sw = SwitchCompat(this).apply {
-            text = "Lọc theo giờ "; setTextColor(Color.WHITE)
-            isChecked = prefs.getBoolean("filter", true)
-            setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("filter", c).apply(); render(true) }
+        chipFilter = Glass.chip(this, "")
+        chipFilter.setOnClickListener {
+            prefs.edit().putBoolean("filter", !prefs.getBoolean("filter", true)).apply()
+            styleFilter(); render(true)
         }
-        val btnLink = Button(this).apply { text = "Nhập link"; setOnClickListener { askLink() } }
-        val btnReload = Button(this).apply { text = "Làm mới"; setOnClickListener { load() } }
-        val btnOrder = Button(this).apply { text = "Sắp xếp nhóm"; setOnClickListener { askOrder() } }
-        btnUpdate = Button(this).apply { text = "Cập nhật"; setOnClickListener { checkUpdate(true) } }
-        bar.addView(sw)
-        root.addView(bar)
-        val actions = LinearLayout(this)
-        listOf(btnOrder, btnLink, btnReload, btnUpdate).forEach { actions.addView(it) }
-        root.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(actions) })
+        styleFilter()
+        val chipOrder = Glass.chip(this, "Sắp xếp").apply { setOnClickListener { askOrder() } }
+        val chipLink = Glass.chip(this, "Nhập link").apply { setOnClickListener { askLink() } }
+        val chipReload = Glass.chip(this, "Làm mới").apply { setOnClickListener { load() } }
+        val chips = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+        listOf(chipFilter, chipOrder, chipLink, chipReload).forEach {
+            chips.addView(it, LinearLayout.LayoutParams(WRAP, WRAP).also { p -> p.leftMargin = dp(8) })
+        }
+        bar.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; isFillViewport = true
+            addView(chips, FrameLayout.LayoutParams(MATCH, WRAP))
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
-        tvStatus = TextView(this).apply { setTextColor(0xFF9AA3B0.toInt()); textSize = 12f; setPadding(0, dp(6), 0, 0) }
-        root.addView(tvStatus)
+        tvStatus = TextView(this).apply {
+            setTextColor(Glass.TEXT2); textSize = 12f; setPadding(dp(6), dp(8), 0, dp(2))
+        }
+        col.addView(tvStatus)
 
-        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(ScrollView(this).apply { addView(content) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(80)) }
+        col.addView(ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false; clipToPadding = false; addView(content)
+        }, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        root.addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // ---- thông báo bản mới: chỉ hiện ở góc khi có cập nhật ----
+        pillUpdate = Glass.chip(this, "Có bản mới · Cập nhật").apply {
+            background = Glass.accentButton(this@MainActivity)
+            visibility = View.GONE
+            setOnClickListener { pending?.let { if (!downloading) confirmUpdate(it) } }
+        }
+        root.addView(pillUpdate, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END)
+            .also { it.setMargins(0, 0, dp(18), dp(18)) })
+
         setContentView(root)
         load()
-        checkUpdate(false)
+        checkUpdate()
     }
 
-    override fun onResume() { super.onResume(); ui.post(tick); render() }
+    override fun onResume() { super.onResume(); ui.post(tick) }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
+    private fun styleFilter() {
+        val on = prefs.getBoolean("filter", true)
+        chipFilter.text = if (on) "Lọc theo giờ: Bật" else "Lọc theo giờ: Tắt"
+        chipFilter.background = if (on) Glass.accentButton(this) else Glass.button(this)
+    }
+
+    private fun AlertDialog.Builder.showGlass() = create().also { d ->
+        d.show()
+        d.window?.setBackgroundDrawable(Glass.glass(this@MainActivity, 24f, tint = 0xF2101012.toInt()))
+    }
+
+    // ---------- link ----------
     private fun askLink() {
         val et = EditText(this).apply {
             hint = Config.LINK_HINT
             setText(prefs.getString("url", Config.DEFAULT_SOURCE_URL))
             setSingleLine()
+            setTextColor(Color.WHITE); setHintTextColor(0x80FFFFFF.toInt())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         AlertDialog.Builder(this)
@@ -117,7 +175,7 @@ class MainActivity : AppCompatActivity() {
                 load()
             }
             .setNegativeButton("Huỷ", null)
-            .show()
+            .showGlass()
     }
 
     private fun load() {
@@ -138,37 +196,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun render(force: Boolean = false) {
-        if (all.isEmpty()) { if (force) content.removeAllViews(); return }
-        val now = System.currentTimeMillis()
-        val filter = prefs.getBoolean("filter", true)
-        val items = all.map { it to it.state(now) }.filter { !filter || it.second != State.ENDED }
-        val sig = filter.toString() + items.joinToString("|") { it.first.url + it.second }
-        if (!force && sig == lastSig) return
-        lastSig = sig
-
-        content.removeAllViews()
-        tvStatus.text = "Đang hiển thị ${items.size}/${all.size} kênh"
-        val rank = mapOf(State.LIVE to 0, State.ALWAYS to 1, State.UPCOMING to 2, State.ENDED to 3)
-        val grouped = items.groupBy { it.first.group }
-        orderedGroups(grouped.keys.toList()).forEach { g ->
-            val list = grouped.getValue(g)
-            content.addView(TextView(this).apply {
-                text = g; setTextColor(Color.WHITE); textSize = 18f
-                setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(14), 0, dp(6))
-            })
-            val sorted = list.sortedWith(
-                compareBy<Pair<Channel, State>>({ rank[it.second]!! }, { it.first.start ?: 0L })
-            )
-            content.addView(RecyclerView(this).apply {
-                layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
-                adapter = ChannelAdapter(sorted) { openPlayer(it) }
-            })
-        }
-    }
-
+    // ---------- hiển thị ----------
     private fun savedOrder() = (prefs.getString("order", "") ?: "").split("\n").filter { it.isNotBlank() }
     private fun favs(): Set<String> = prefs.getStringSet("fav", emptySet()) ?: emptySet()
+    private fun hidden(): Set<String> = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
 
     /** Nhóm ghim lên đầu, sau đó theo thứ tự người dùng đã sắp; nhóm mới xuất hiện ở cuối. */
     private fun orderedGroups(groups: List<String>): List<String> {
@@ -179,9 +210,66 @@ class MainActivity : AppCompatActivity() {
         ))
     }
 
+    private fun render(force: Boolean = false) {
+        if (all.isEmpty()) { if (force) content.removeAllViews(); return }
+        val now = System.currentTimeMillis()
+        val filter = prefs.getBoolean("filter", true)
+        val hid = hidden()
+        val items = all.map { it to it.state(now) }
+            .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
+        val sig = filter.toString() + hid.sorted().joinToString(",") + "#" +
+            items.joinToString("|") { it.first.url + it.second }
+        if (!force && sig == lastSig) {
+            adapters.forEach { it.tickTimers() }   // chỉ đếm giờ, không dựng lại
+            return
+        }
+        lastSig = sig
+
+        content.removeAllViews(); adapters.clear()
+        tvStatus.text = when {
+            items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
+            else -> "Đang hiển thị ${items.size}/${all.size} kênh" +
+                if (hid.isNotEmpty()) " · ${hid.size} nhóm đang ẩn" else ""
+        }
+        val rank = mapOf(State.LIVE to 0, State.ALWAYS to 1, State.UPCOMING to 2, State.ENDED to 3)
+        val grouped = items.groupBy { it.first.group }
+        orderedGroups(grouped.keys.toList()).forEach { g ->
+            val list = grouped.getValue(g)
+            val head = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(16), 0, dp(8))
+            }
+            head.addView(View(this).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Glass.AMBER, Glass.ORANGE)
+                ).also { it.cornerRadius = dp(2).toFloat() }
+            }, LinearLayout.LayoutParams(dp(4), dp(20)))
+            head.addView(TextView(this).apply {
+                text = g; setTextColor(Color.WHITE); textSize = 18f
+                setTypeface(typeface, Typeface.BOLD); setPadding(dp(10), 0, 0, 0)
+            })
+            content.addView(head)
+
+            val sorted = list.sortedWith(
+                compareBy<Pair<Channel, State>>({ rank[it.second]!! }, { it.first.start ?: 0L })
+            )
+            val ad = ChannelAdapter(sorted) { openPlayer(it) }
+            adapters += ad
+            content.addView(RecyclerView(this).apply {
+                layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+                adapter = ad
+                itemAnimator = null
+                clipToPadding = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+            })
+        }
+    }
+
+    // ---------- sắp xếp / ghim / ẩn-hiện nhóm ----------
     private fun askOrder() {
         if (all.isEmpty()) { tvStatus.text = "Chưa có danh sách để sắp xếp"; return }
         val fav = favs().toMutableSet()
+        val hid = hidden().toMutableSet()
         var cur = orderedGroups(all.map { it.group }.distinct())
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -189,58 +277,69 @@ class MainActivity : AppCompatActivity() {
         fun rebuild() {
             box.removeAllViews()
             cur.forEachIndexed { i, g ->
-                val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                row.addView(TextView(this).apply {
-                    text = if (g in fav) "[Ghim] $g" else g
-                    setTextColor(Color.WHITE); textSize = 15f
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                fun btn(t: String, a: () -> Unit) = Button(this).apply { text = t; textSize = 12f; setOnClickListener { a() } }
-                row.addView(btn(if (g in fav) "Bỏ ghim" else "Ghim") {
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = Glass.glass(this@MainActivity, 16f, tint = 0x40000000)
+                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                }
+                item.addView(TextView(this).apply {
+                    text = (if (g in fav) "[Ghim] " else "") + g + (if (g in hid) "  (đang ẩn)" else "")
+                    setTextColor(if (g in hid) 0x80FFFFFF.toInt() else Color.WHITE)
+                    textSize = 15f; setTypeface(typeface, Typeface.BOLD)
+                })
+                val row = LinearLayout(this).apply { setPadding(0, dp(6), 0, 0) }
+                fun add(t: String, a: () -> Unit) {
+                    row.addView(Glass.chip(this@MainActivity, t, 12f).apply { setOnClickListener { a() } },
+                        LinearLayout.LayoutParams(WRAP, WRAP).also { it.rightMargin = dp(6) })
+                }
+                add(if (g in hid) "Hiện" else "Ẩn") {
+                    if (g in hid) hid.remove(g) else hid.add(g)
+                    rebuild()
+                }
+                add(if (g in fav) "Bỏ ghim" else "Ghim") {
                     if (g in fav) fav.remove(g) else fav.add(g)
                     cur = cur.sortedBy { if (it in fav) 0 else 1 }
                     rebuild()
-                })
-                row.addView(btn("Lên") {
+                }
+                add("Lên") {
                     if (i > 0) { cur = cur.toMutableList().also { it.add(i - 1, it.removeAt(i)) }; rebuild() }
-                })
-                row.addView(btn("Xuống") {
+                }
+                add("Xuống") {
                     if (i < cur.size - 1) { cur = cur.toMutableList().also { it.add(i + 1, it.removeAt(i)) }; rebuild() }
-                })
-                box.addView(row)
+                }
+                item.addView(row)
+                box.addView(item, LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) })
             }
         }
         rebuild()
         AlertDialog.Builder(this)
-            .setTitle("Sắp xếp nhóm kênh")
+            .setTitle("Sắp xếp, ẩn/hiện nhóm")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Xong") { _, _ ->
                 prefs.edit().putString("order", cur.joinToString("\n"))
-                    .putStringSet("fav", HashSet(fav)).apply()
+                    .putStringSet("fav", HashSet(fav))
+                    .putStringSet("hidden", HashSet(hid)).apply()
                 lastSig = ""; render(true)
             }
             .setNegativeButton("Huỷ", null)
-            .show()
+            .showGlass()
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
-
-    /** manual=true: người dùng bấm nút; false: kiểm tra âm thầm lúc mở app, chỉ đổi chữ trên nút. */
-    private fun checkUpdate(manual: Boolean) {
-        if (manual) toast("Đang kiểm tra bản cập nhật…")
+    // ---------- cập nhật: chỉ hiện thông báo ở góc khi có bản mới ----------
+    private fun checkUpdate() {
+        if (downloading) return
         lifecycleScope.launch {
             try {
                 val r = Updater.latest()
-                val local = Updater.localCode(this@MainActivity)
-                if (r != null && r.code > local) {
-                    btnUpdate.text = "Cập nhật (có bản mới)"
-                    if (manual) confirmUpdate(r)
+                if (r != null && r.code > Updater.localCode(this@MainActivity)) {
+                    pending = r
+                    pillUpdate.text = "Có bản mới · Cập nhật"
+                    pillUpdate.visibility = View.VISIBLE
                 } else {
-                    btnUpdate.text = "Cập nhật"
-                    if (manual) toast("Bạn đang dùng bản mới nhất (build $local)")
+                    pending = null
+                    pillUpdate.visibility = View.GONE
                 }
-            } catch (e: Exception) {
-                if (manual) toast("Không kiểm tra được: ${e.message}")
-            }
+            } catch (_: Exception) { /* im lặng: không có mạng / chưa cấu hình repo */ }
         }
     }
 
@@ -250,18 +349,21 @@ class MainActivity : AppCompatActivity() {
             .setMessage(r.notes.take(400).ifBlank { "Bản cập nhật mới đã sẵn sàng." })
             .setPositiveButton("Cập nhật ngay") { _, _ -> doUpdate(r) }
             .setNegativeButton("Để sau", null)
-            .show()
+            .showGlass()
     }
 
     private fun doUpdate(r: Updater.Release) {
-        tvStatus.text = "Đang tải bản cập nhật… 0%"
+        downloading = true
+        pillUpdate.text = "Đang tải 0%"
         lifecycleScope.launch {
             try {
-                val f = Updater.download(this@MainActivity, r.apkUrl) { tvStatus.text = "Đang tải bản cập nhật… $it%" }
-                if (Updater.install(this@MainActivity, f)) tvStatus.text = "Đã tải xong, đang mở trình cài đặt…"
-                else tvStatus.text = "Hãy bật “Cho phép cài từ nguồn này” cho ứng dụng, rồi bấm Cập nhật lại"
+                val f = Updater.download(this@MainActivity, r.apkUrl) { pillUpdate.text = "Đang tải $it%" }
+                pillUpdate.text = if (Updater.install(this@MainActivity, f)) "Có bản mới · Cập nhật"
+                else "Bật quyền cài đặt rồi bấm lại"
             } catch (e: Exception) {
-                tvStatus.text = "Lỗi cập nhật: ${e.message}"
+                pillUpdate.text = "Lỗi tải, bấm để thử lại"
+            } finally {
+                downloading = false
             }
         }
     }
