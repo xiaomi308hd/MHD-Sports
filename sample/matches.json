@@ -1,0 +1,17 @@
+{
+  "groups": [
+    {
+      "name": "Ngoại hạng Anh",
+      "channels": [
+        { "name": "Arsenal vs Chelsea", "logo": "https://example.com/a.jpg", "url": "https://example.com/a.m3u8", "start": "2026-11-06 18:00", "end": "2026-11-06 20:00" },
+        { "name": "Man City vs Liverpool", "logo": "https://example.com/b.jpg", "url": "https://bit.ly/xxxx", "start": "2026-11-06 21:00" }
+      ]
+    },
+    {
+      "name": "Kênh 24/7",
+      "channels": [
+        { "name": "Kênh thể thao 1", "logo": "https://example.com/c.png", "url": "https://example.com/live.m3u8" }
+      ]
+    }
+  ]
+}
