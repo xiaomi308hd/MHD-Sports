@@ -28,6 +28,7 @@ object Updater {
             .url("https://api.github.com/repos/${Config.GITHUB_REPO}/releases/latest")
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "MHDSports")
+            .header("Cache-Control", "no-cache")
             .build()
         Net.client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) error("GitHub trả về mã ${r.code} (repo cần để Public và đã có bản phát hành)")

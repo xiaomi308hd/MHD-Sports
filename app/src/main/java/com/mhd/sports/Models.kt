@@ -11,11 +11,11 @@ object Config {
     const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/guiterhd-bit/Api-JK/main/index.json"
 
     /** Repo GitHub Releases chứa APK. Chưa tự đặt vì repo phát hành APK cần được xác nhận riêng. */
-    const val GITHUB_REPO = "your-name/MHDSports"
+    const val GITHUB_REPO = "guiterhd-bit/MHD-Sports"
 
     const val LINK_HINT = "Dán link index.json, JSON, M3U hoặc M3U8"
     const val DEFAULT_DURATION_MIN = 120
-    const val DATA_REFRESH_MIN = 5
+    const val DATA_REFRESH_MIN = 2
 
     /**
      * Luồng bổ sung có sẵn: danh sách kênh công khai của iptv-org (định dạng M3U).
@@ -36,14 +36,16 @@ object Config {
 enum class State { LIVE, UPCOMING, ENDED, ALWAYS }
 
 /** Một địa chỉ phát (dùng làm dự phòng khi luồng chính lỗi). */
-data class StreamSource(val url: String, val headers: Map<String, String> = emptyMap())
+data class StreamSource(val url: String, val headers: Map<String, String> = emptyMap(), val label: String = "")
 
 /** Một lựa chọn phát. FLV và HLS cùng bình luận viên/chất lượng được gộp: url là luồng ưu tiên, fallbacks là dự phòng. */
 data class StreamOption(
     val label: String,
     val url: String,
     val headers: Map<String, String> = emptyMap(),
-    val fallbacks: List<StreamSource> = emptyList()
+    val fallbacks: List<StreamSource> = emptyList(),
+    /** Nhãn định dạng của luồng chính (HLS / HLS2 / FLV) để hiện trên thanh đổi luồng trong trình phát. */
+    val format: String = ""
 )
 
 data class Channel(

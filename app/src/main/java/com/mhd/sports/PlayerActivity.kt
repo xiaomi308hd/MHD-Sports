@@ -53,7 +53,7 @@ class PlayerActivity : AppCompatActivity() {
         val lenientTls: Boolean = false, // bỏ kiểm tra chứng chỉ TLS (chỉ dùng khi các cách khác đã lỗi)
         val forceMime: String? = null    // ép đọc theo HLS / FLV
     )
-    private class Source(val url: String, val headers: Map<String, String>)
+    private class Source(val url: String, val headers: Map<String, String>, val label: String = "")
 
     private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -63,6 +63,8 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var tvRes: TextView
     private lateinit var tvFps: TextView
     private lateinit var tvSpeed: TextView
+    private val streamChips = mutableListOf<TextView>()
+    private lateinit var streamBox: LinearLayout
     private var attempts: List<Attempt> = emptyList()
     private var idx = 0
     private var playUrl = ""
@@ -118,6 +120,8 @@ class PlayerActivity : AppCompatActivity() {
         tvRes = statChip("-- × --")
         tvFps = statChip("-- fps")
         tvSpeed = statChip("Tải -- KB/s")
+        streamBox = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        bar.addView(streamBox, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(8) })
         listOf(tvRes, tvFps, tvSpeed).forEach {
             bar.addView(it, LinearLayout.LayoutParams(WRAP, WRAP).also { p -> p.leftMargin = dp(8) })
         }
@@ -135,9 +139,11 @@ class PlayerActivity : AppCompatActivity() {
         @Suppress("UNCHECKED_CAST", "DEPRECATION")
         val altHeaders = (intent.getSerializableExtra("alt_headers") as? ArrayList<HashMap<String, String>>) ?: arrayListOf()
         listUrl = getSharedPreferences("p", MODE_PRIVATE).getString("url", null)
-        val list = mutableListOf(makeSource(url, own))
-        altUrls.forEachIndexed { i, u -> list += makeSource(u, altHeaders.getOrNull(i) ?: emptyMap()) }
+        val altLabels = intent.getStringArrayListExtra("alt_labels") ?: arrayListOf()
+        val list = mutableListOf(makeSource(url, own, intent.getStringExtra("format").orEmpty()))
+        altUrls.forEachIndexed { i, u -> list += makeSource(u, altHeaders.getOrNull(i) ?: emptyMap(), altLabels.getOrNull(i).orEmpty()) }
         sources = list.distinctBy { it.url }
+        buildStreamChips()
 
         lifecycleScope.launch { beginSource(0) }
         ui.post(statsTick)
@@ -179,7 +185,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /** Chuẩn hoá link; hỗ trợ dạng "https://...m3u8|User-Agent=abc&Referer=https://site". */
-    private fun makeSource(raw: String, base: Map<String, String>): Source {
+    private fun makeSource(raw: String, base: Map<String, String>, label: String = ""): Source {
         val headers = LinkedHashMap(base)
         var u = raw.trim()
         val bar = u.indexOf('|')
@@ -203,12 +209,33 @@ class PlayerActivity : AppCompatActivity() {
         }
         u = u.replace(" ", "%20")
         if (u.startsWith("//")) u = "http:$u"
-        return Source(u, headers)
+        return Source(u, headers, label)
+    }
+
+    /** Nút đổi luồng (HLS / HLS2 / FLV) trên thanh trạng thái; chỉ hiện khi trận có từ 2 luồng trở lên. */
+    private fun buildStreamChips() {
+        streamBox.removeAllViews(); streamChips.clear()
+        if (sources.size < 2) { streamBox.visibility = View.GONE; return }
+        sources.forEachIndexed { i, src ->
+            val chip = Glass.chip(this, src.label.ifBlank { "Luồng ${i + 1}" }, 13f).apply {
+                setOnClickListener { if (i != srcIdx) lifecycleScope.launch { beginSource(i) } }
+            }
+            streamChips += chip
+            streamBox.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { if (i > 0) it.leftMargin = dp(6) })
+        }
+        highlightStream()
+    }
+
+    private fun highlightStream() {
+        streamChips.forEachIndexed { i, chip ->
+            chip.background = if (i == srcIdx) Glass.accentButton(this, 18f) else Glass.button(this, 18f)
+        }
     }
 
     /** Mở một nguồn (luồng chính hoặc luồng dự phòng): dò link rút gọn rồi bắt đầu thử từ cách đầu tiên. */
     private suspend fun beginSource(i: Int) {
         srcIdx = i
+        if (streamChips.isNotEmpty()) highlightStream()
         idx = 0
         reconnects = 0
         playedOnce = false
@@ -315,7 +342,7 @@ class PlayerActivity : AppCompatActivity() {
                     ).show()
                     view.post { startAttempt() }
                 } else if (retryable && srcIdx < sources.size - 1) {
-                    Toast.makeText(this@PlayerActivity, "Luồng này lỗi, chuyển sang luồng dự phòng (FLV/HLS)…", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@PlayerActivity, "Luồng này lỗi, chuyển sang " + (sources[srcIdx + 1].label.ifBlank { "luồng dự phòng" }) + "…", Toast.LENGTH_SHORT).show()
                     lifecycleScope.launch { beginSource(srcIdx + 1) }
                 } else {
                     Toast.makeText(this@PlayerActivity, "Không phát được: " + explain(code, error), Toast.LENGTH_LONG).show()

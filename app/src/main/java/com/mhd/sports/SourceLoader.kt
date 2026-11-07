@@ -134,7 +134,124 @@ object SourceLoader {
             text.startsWith("#EXTM3U") -> listOf(Channel("Kênh của bạn", null, finalUrl, stationName, null, null, groupLogo = stationLogo))
             else -> error("Không nhận ra định dạng (cần JSON, M3U hoặc M3U8)")
         }
-        return if (forceStationGroup) parsed.map { it.copy(group = stationName, groupLogo = stationLogo) } else parsed
+        val grouped = if (forceStationGroup) parsed.map { it.copy(group = stationName, groupLogo = stationLogo) } else parsed
+        return mergeDuplicates(grouped)
+    }
+
+    // ---------- gộp trận trùng tên ----------
+    // Tên có thể kèm nhãn luồng như "[hls]", "[flv]", "[hls2]", "(FLV)"... => bỏ nhãn rồi so tên.
+    private val FORMAT_TAG = Regex("""(?i)\s*[\[(]\s*((?:http[-_ ]?)?flv\s*\d*|hls\s*\d*|m3u8\s*\d*)\s*[\])]""")
+    private val DIACRITICS = Regex("""\p{M}+""")
+    private const val SAME_START_MS = 5 * 60_000L
+
+    private fun foldName(t: String): String =
+        java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(DIACRITICS, "")
+            .replace('đ', 'd').replace('Đ', 'D').lowercase()
+            .replace(Regex("""[^\p{L}\p{N}:/]+"""), " ").trim()
+
+    /** "hls 2" -> "HLS2", "http-flv" -> "FLV". Trả chuỗi rỗng nếu không nhận ra. */
+    private fun tagLabel(tag: String?): String {
+        if (tag == null) return ""
+        val t = tag.lowercase().replace(Regex("""[\s_-]"""), "")
+        val n = Regex("""\d+""").find(t)?.value.orEmpty()
+        return when {
+            "flv" in t -> "FLV$n"
+            "hls" in t || "m3u8" in t -> "HLS$n"
+            else -> ""
+        }
+    }
+
+    private fun labelFromUrl(url: String): String {
+        val path = url.substringBefore('?').substringBefore('|').lowercase()
+        return when {
+            path.contains(".m3u8") -> "HLS"
+            path.contains(".flv") -> "FLV"
+            else -> ""
+        }
+    }
+
+    private fun labelRank(label: String): Int = when {
+        label.startsWith("HLS") -> 0
+        label.startsWith("FLV") -> 2
+        else -> 1
+    }
+
+    /** Trùng nhãn thì đánh số: HLS, HLS -> HLS, HLS2; nhãn rỗng -> "Luồng N". */
+    private fun numberLabels(raw: List<String>): List<String> {
+        val used = mutableSetOf<String>()
+        return raw.mapIndexed { i, l ->
+            if (l.isBlank()) return@mapIndexed "Luồng ${i + 1}".also { used += it }
+            var cand = l
+            if (cand in used) {
+                val base = l.trimEnd { it.isDigit() }
+                var n = 2
+                while ("$base$n" in used) n++
+                cand = "$base$n"
+            }
+            used += cand
+            cand
+        }
+    }
+
+    private class Member(val tag: String, val ch: Channel)
+
+    /**
+     * Các mục cùng tên (sau khi bỏ nhãn [hls]/[flv]/[hls2]) trong cùng nhà đài, cùng giờ => gộp thành 1 thẻ.
+     * Các luồng cũ thành danh sách lựa chọn; người xem đổi HLS / HLS2 / FLV ngay trong trình phát.
+     */
+    private fun mergeDuplicates(list: List<Channel>): List<Channel> {
+        class Bucket(val key: String, val members: MutableList<Member>)
+        val buckets = mutableListOf<Bucket>()
+        val byKey = HashMap<String, MutableList<Bucket>>()
+        for (ch in list) {
+            val tag = FORMAT_TAG.find(ch.name)?.groupValues?.get(1)
+            val base = cleanName(ch.name.replace(FORMAT_TAG, " "))
+            val key = ch.group.lowercase() + "|" + foldName(base)
+            val candidates = byKey.getOrPut(key) { mutableListOf() }
+            val target = candidates.firstOrNull { b ->
+                val s0 = b.members.first().ch.start
+                s0 == null || ch.start == null || kotlin.math.abs(s0 - ch.start) <= SAME_START_MS
+            } ?: Bucket(key, mutableListOf()).also { candidates += it; buckets += it }
+            target.members += Member(tagLabel(tag), ch.copy(name = base))
+        }
+        return buckets.map { b ->
+            val first = b.members.first().ch
+            val tagged = b.members.any { it.tag.isNotEmpty() }
+            if (b.members.size == 1 && !tagged) return@map first
+
+            val ownStreams = b.members.flatMap { it.ch.streams }
+            val options: List<StreamOption> = if (ownStreams.isNotEmpty()) {
+                ownStreams.distinctBy { it.label + "#" + it.url }
+            } else {
+                val raw = b.members.map { m ->
+                    Triple(m.tag.ifEmpty { labelFromUrl(m.ch.url) }, m.ch.url, m.ch.headers)
+                }.filter { it.second.isNotBlank() }.distinctBy { it.second }
+                val sorted = raw.sortedWith(compareBy({ labelRank(it.first) }, { it.first }))
+                val labels = numberLabels(sorted.map { it.first })
+                val variants = sorted.mapIndexed { i, t -> Triple(labels[i], t.second, t.third) }
+                if (variants.isEmpty()) emptyList()
+                else listOf(StreamOption(
+                    label = "Phát trực tiếp",
+                    url = variants[0].second,
+                    headers = variants[0].third,
+                    fallbacks = variants.drop(1).map { StreamSource(it.second, it.third, it.first) },
+                    format = variants[0].first
+                ))
+            }
+            first.copy(
+                logo = b.members.firstNotNullOfOrNull { it.ch.logo?.takeIf { l -> l.isNotBlank() } },
+                url = options.firstOrNull()?.url ?: first.url,
+                headers = options.firstOrNull()?.headers ?: first.headers,
+                start = b.members.mapNotNull { it.ch.start }.minOrNull(),
+                end = b.members.firstNotNullOfOrNull { it.ch.end },
+                streams = options,
+                detail = b.members.firstNotNullOfOrNull { it.ch.detail?.takeIf { d -> d.isNotBlank() } },
+                providerStatus = b.members.firstNotNullOfOrNull { it.ch.providerStatus },
+                groupLogo = b.members.firstNotNullOfOrNull { it.ch.groupLogo },
+                logoFit = b.members.any { it.ch.logoFit },
+                sport = b.members.firstNotNullOfOrNull { it.ch.sport }
+            )
+        }
     }
 
     private fun parseJson(text: String, stationName: String, stationLogo: String?, forceStationGroup: Boolean): List<Channel> {
@@ -241,6 +358,8 @@ object SourceLoader {
     private val FORMAT_WORDS = Regex("""(?i)\b(http[-_ ]?flv|flv|hls|m3u8)\b""")
     private val SEPARATORS = Regex("""[\s\-_/|()\[\]·:]+""")
 
+    private fun fmtName(f: Fmt): String = when (f) { Fmt.HLS -> "HLS"; Fmt.FLV -> "FLV"; Fmt.OTHER -> "" }
+
     private fun formatOf(url: String, hint: String): Fmt {
         val path = url.substringBefore('?').lowercase()
         val h = hint.lowercase()
@@ -266,7 +385,12 @@ object SourceLoader {
             val quality = first.quality.replace(FORMAT_WORDS, " ").replace(SEPARATORS, " ").trim()
             val label = listOf(first.commentator, quality).filter { it.isNotBlank() }.joinToString(" · ")
                 .ifBlank { "Phát trực tiếp" }
-            StreamOption(label, first.url, first.headers, sorted.drop(1).map { StreamSource(it.url, it.headers) })
+            val labels = numberLabels(sorted.map { fmtName(it.fmt) })
+            StreamOption(
+                label, first.url, first.headers,
+                sorted.drop(1).mapIndexed { i, r -> StreamSource(r.url, r.headers, labels[i + 1]) },
+                labels[0]
+            )
         }
     }
 

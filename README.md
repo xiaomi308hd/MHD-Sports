@@ -59,3 +59,10 @@ Bản nâng cấp hiện đọc mặc định `index.json` tại:
 `index.json` quản lý danh sách nhà đài (`id`, `name`, `logo`, `url`, `enabled`). Mỗi nhà đài có thể trỏ tới một file JSON riêng. Ứng dụng tự tải lại dữ liệu khi mở lại và mỗi 5 phút khi đang chạy; sửa JSON trên GitHub không cần phát hành APK mới.
 
 Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, giải đấu, giờ thi đấu, tỷ số, trạng thái và các luồng trong `blvs[]`/`blvs_*[] .streams[]`. Mỗi trận hiển thị thành một thẻ; bấm thẻ để chọn bình luận viên và chất lượng phát. Xem `README_UPGRADE_VI.md` và `github-data/index.json` để cấu hình thêm nhà đài.
+
+## Cập nhật giao diện & dữ liệu (bản mới nhất)
+
+- **Gộp trận trùng tên**: các mục cùng tên (sau khi bỏ nhãn `[hls]`, `[flv]`, `[hls2]`...) trong cùng một nhà đài và cùng giờ chỉ còn 1 thẻ. Bấm vào thẻ rồi đổi luồng **HLS / HLS2 / FLV** ngay trên thanh trạng thái phía trên của trình phát (thanh hiện khi chạm màn hình / bấm OK).
+- **Thanh trên cùng mới**: logo + tên ứng dụng bên trái, đồng hồ/ngày bên phải, kế bên là hai nút biểu tượng **Làm mới** và **Cài đặt**. Hàng bộ môn được căn giữa.
+- **Cài đặt** gom: Lọc theo giờ, Sắp xếp/ẩn-hiện nhóm, Nhập link nguồn, Kiểm tra bản cập nhật.
+- **Tự cập nhật**: dữ liệu tải lại mỗi `Config.DATA_REFRESH_MIN` phút (2 phút) và khi mở lại app; bản APK mới được kiểm tra khi mở app, khi quay lại app và mỗi 10 phút, hiện hộp thoại một lần cho mỗi bản mới. `Config.GITHUB_REPO` phải trỏ đúng repo chứa Releases (hiện đặt `guiterhd-bit/MHD-Sports`; sửa lại nếu repo của bạn tên khác).

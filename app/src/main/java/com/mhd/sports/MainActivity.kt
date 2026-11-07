@@ -1,5 +1,6 @@
 package com.mhd.sports
 
+import android.animation.ObjectAnimator
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -14,6 +15,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -42,8 +44,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTime: TextView
     private lateinit var tvStatus: TextView
     private lateinit var content: LinearLayout
-    private lateinit var chipFilter: TextView
+    private lateinit var btnReload: ImageView
+    private var spinAnim: ObjectAnimator? = null
     private lateinit var pillUpdate: TextView
+    private var lastUpdateCheckAt = 0L
     private val sportChips = mutableMapOf<Sport?, TextView>()
 
     private var all: List<Channel> = emptyList()
@@ -57,17 +61,21 @@ class MainActivity : AppCompatActivity() {
     private val adapters = mutableListOf<ChannelAdapter>()
 
     private val dateFmt = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi", "VN"))
+    private val dateFmtShort = SimpleDateFormat("EEE, dd/MM", Locale("vi", "VN"))
+    /** Màn hình hẹp (điện thoại dọc): thu nhỏ thanh trên cùng cho vừa. */
+    private val compact get() = resources.configuration.screenWidthDp < 520
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     // Mỗi giây: cập nhật đồng hồ, lọc lại trận theo giờ, đếm phút:giây trận đang phát
     private val tick = object : Runnable {
         override fun run() {
             val now = Date()
-            tvDate.text = dateFmt.format(now)
+            tvDate.text = (if (compact) dateFmtShort else dateFmt).format(now)
             tvTime.text = timeFmt.format(now)
             render()
-            if (++secs % 300 == 0) refreshDataIfDue()
-            if (secs % 1800 == 0) checkUpdate()
+            secs++
+            if (secs % 30 == 0) refreshDataIfDue()          // hạn tải lại do Config.DATA_REFRESH_MIN quyết định
+            if (secs % 600 == 0) checkUpdate()              // 10 phút kiểm tra bản APK mới một lần
             ui.postDelayed(this, 1000 - now.time % 1000)
         }
     }
@@ -91,21 +99,24 @@ class MainActivity : AppCompatActivity() {
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), 0)
+            setPadding(dp(18), dp(8), dp(18), 0)
         }
 
-        // ---- logo + tên ứng dụng ----
-        val brand = LinearLayout(this).apply {
+        // ---- thanh trên: [logo + tên] ........ [đồng hồ / ngày] [làm mới] [cài đặt] ----
+        val bar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, 0, dp(10))
+            background = Glass.glass(this@MainActivity, 24f)
+            setPadding(dp(14), dp(10), dp(12), dp(10))
         }
+        val logoSize = if (compact) 40 else 54
         val logo = ImageView(this).apply {
             setImageResource(R.drawable.app_logo)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = Config.APP_NAME
         }
         Glass.clipRound(logo, 12f)
-        brand.addView(logo, LinearLayout.LayoutParams(dp(46), dp(46)))
+        val brand = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        brand.addView(logo, LinearLayout.LayoutParams(dp(logoSize), dp(logoSize)))
         val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val spaceAt = Config.APP_NAME.indexOf(' ')
         val nameSpan = SpannableString(Config.APP_NAME).apply {
@@ -115,59 +126,48 @@ class MainActivity : AppCompatActivity() {
             } else setSpan(ForegroundColorSpan(Color.WHITE), 0, length, 0)
         }
         brandText.addView(TextView(this).apply {
-            text = nameSpan; textSize = 22f; setTypeface(typeface, Typeface.BOLD)
+            text = nameSpan; textSize = if (compact) 18f else 24f
+            setTypeface(typeface, Typeface.BOLD); maxLines = 1
         })
-        brandText.addView(TextView(this).apply {
+        if (!compact) brandText.addView(TextView(this).apply {
             text = Config.APP_TAGLINE; setTextColor(Glass.TEXT2); textSize = 12f
         })
-        brand.addView(brandText, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(12) })
-        col.addView(brand, LinearLayout.LayoutParams(MATCH, WRAP))
+        brand.addView(brandText, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(10) })
+        bar.addView(brand, LinearLayout.LayoutParams(0, WRAP, 1f))
 
-        // ---- thanh trên: đồng hồ + nút chức năng (kính) ----
-        val bar = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            background = Glass.glass(this@MainActivity, 24f)
-            setPadding(dp(18), dp(10), dp(12), dp(10))
+        // đồng hồ + ngày: căn phải
+        val clock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
+        tvDate = TextView(this).apply {
+            setTextColor(Glass.AMBER); textSize = if (compact) 11f else 13f; gravity = Gravity.END; maxLines = 1
         }
-        val clock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        tvDate = TextView(this).apply { setTextColor(Glass.AMBER); textSize = 13f }
         tvTime = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 30f; setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE); textSize = if (compact) 22f else 30f
+            setTypeface(typeface, Typeface.BOLD); gravity = Gravity.END; maxLines = 1
         }
         clock.addView(tvDate); clock.addView(tvTime)
-        bar.addView(clock, LinearLayout.LayoutParams(WRAP, WRAP))
+        bar.addView(clock, LinearLayout.LayoutParams(WRAP, WRAP).also { it.rightMargin = dp(if (compact) 8 else 16) })
 
-        chipFilter = Glass.chip(this, "")
-        chipFilter.setOnClickListener {
-            prefs.edit().putBoolean("filter", !prefs.getBoolean("filter", true)).apply()
-            styleFilter(); render(true)
-        }
-        styleFilter()
-        val chipOrder = Glass.chip(this, "Sắp xếp").apply { setOnClickListener { askOrder() } }
-        val chipLink = Glass.chip(this, "Nhập link").apply { setOnClickListener { askLink() } }
-        val chipReload = Glass.chip(this, "Làm mới").apply { setOnClickListener { load() } }
-        val chips = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
-        listOf(chipFilter, chipOrder, chipLink, chipReload).forEach {
-            chips.addView(it, LinearLayout.LayoutParams(WRAP, WRAP).also { p -> p.leftMargin = dp(8) })
-        }
-        bar.addView(HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false; isFillViewport = true
-            addView(chips, FrameLayout.LayoutParams(MATCH, WRAP))
-        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        // hai nút biểu tượng cạnh nhau ở góc phải trên cùng
+        val iconSize = dp(if (compact) 40 else 46)
+        btnReload = iconButton(R.drawable.ic_refresh, "Làm mới") { load(); checkUpdate(manual = false) }
+        val btnSettings = iconButton(R.drawable.ic_settings, "Cài đặt") { openSettings() }
+        bar.addView(btnReload, LinearLayout.LayoutParams(iconSize, iconSize))
+        bar.addView(btnSettings, LinearLayout.LayoutParams(iconSize, iconSize).also { it.leftMargin = dp(8) })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
-        // ---- lọc theo bộ môn ----
-        val sportRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        // ---- lọc theo bộ môn: căn giữa khung ----
+        val sportRow = LinearLayout(this).apply { gravity = Gravity.CENTER }
         fun addSportChip(sport: Sport?, label: String) {
             val chip = Glass.chip(this, label, 13f).apply { setOnClickListener { selectSport(sport) } }
             sportChips[sport] = chip
-            sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.rightMargin = dp(8) })
+            sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.setMargins(dp(4), 0, dp(4), 0) })
         }
         addSportChip(null, "Tất cả")
         Sport.values().forEach { addSportChip(it, it.label) }
         col.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            addView(sportRow, FrameLayout.LayoutParams(WRAP, WRAP))
+            isFillViewport = true     // đủ chỗ: dàn đều và căn giữa; hẹp quá: vuốt ngang
+            addView(sportRow, FrameLayout.LayoutParams(WRAP, MATCH))
         }, LinearLayout.LayoutParams(MATCH, WRAP).also { it.topMargin = dp(10) })
         styleSportChips()
 
@@ -200,6 +200,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         ui.post(tick)
         refreshDataIfDue()
+        // quay lại ứng dụng: kiểm tra bản APK mới (cách nhau tối thiểu 60 giây để khỏi gọi GitHub liên tục)
+        if (System.currentTimeMillis() - lastUpdateCheckAt > 60_000L) checkUpdate()
     }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
@@ -221,10 +223,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun styleFilter() {
-        val on = prefs.getBoolean("filter", true)
-        chipFilter.text = if (on) "Lọc theo giờ: Bật" else "Lọc theo giờ: Tắt"
-        chipFilter.background = if (on) Glass.accentButton(this) else Glass.button(this)
+    private fun iconButton(res: Int, desc: String, onClick: () -> Unit) = ImageView(this).apply {
+        setImageResource(res)
+        contentDescription = desc
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        val pad = dp(10); setPadding(pad, pad, pad, pad)
+        isFocusable = true; isClickable = true
+        background = Glass.button(this@MainActivity, 23f)
+        setOnClickListener { onClick() }
+    }
+
+    private fun spinReload(on: Boolean) {
+        spinAnim?.cancel(); spinAnim = null
+        if (on) {
+            spinAnim = ObjectAnimator.ofFloat(btnReload, View.ROTATION, 0f, 360f).apply {
+                duration = 900; repeatCount = ObjectAnimator.INFINITE; interpolator = LinearInterpolator(); start()
+            }
+        } else btnReload.rotation = 0f
+    }
+
+    // ---------- cài đặt: lọc theo giờ / sắp xếp / nhập link / cập nhật ----------
+    private fun openSettings() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(6))
+        }
+        lateinit var dialog: AlertDialog
+        fun row(text: String, accent: Boolean = false, action: (TextView) -> Unit): TextView {
+            val t = TextView(this).apply {
+                this.text = text; setTextColor(Color.WHITE); textSize = 15f
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(16), dp(13), dp(16), dp(13))
+                isFocusable = true; isClickable = true
+                background = if (accent) Glass.accentButton(this@MainActivity, 16f) else Glass.button(this@MainActivity, 16f)
+                setOnClickListener { action(this) }
+            }
+            box.addView(t, LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) })
+            return t
+        }
+        fun filterText() = if (prefs.getBoolean("filter", true)) "Lọc theo giờ: Bật" else "Lọc theo giờ: Tắt"
+        row(filterText(), accent = prefs.getBoolean("filter", true)) { t ->
+            val on = !prefs.getBoolean("filter", true)
+            prefs.edit().putBoolean("filter", on).apply()
+            t.text = filterText()
+            t.background = if (on) Glass.accentButton(this, 16f) else Glass.button(this, 16f)
+            render(true)
+        }
+        row("Sắp xếp, ẩn/hiện nhóm") { dialog.dismiss(); askOrder() }
+        row("Nhập link nguồn") { dialog.dismiss(); askLink() }
+        val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
+        row("Kiểm tra bản cập nhật  ·  đang dùng $ver") { dialog.dismiss(); checkUpdate(manual = true) }
+        dialog = AlertDialog.Builder(this)
+            .setTitle("Cài đặt")
+            .setView(box)
+            .setNegativeButton("Đóng", null)
+            .showGlass()
     }
 
     private fun AlertDialog.Builder.showGlass() = create().also { d ->
@@ -274,6 +326,7 @@ class MainActivity : AppCompatActivity() {
         if (isOldApiJkSportLink || savedUrl == Config.DEFAULT_SOURCE_URL) prefs.edit().remove("url").apply()
         val url = if (savedUrl == null || isOldApiJkSportLink) Config.DEFAULT_SOURCE_URL else savedUrl
         loadingData = true
+        if (!silent) spinReload(true)
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
         lifecycleScope.launch {
             try {
@@ -292,6 +345,7 @@ class MainActivity : AppCompatActivity() {
                 else tvStatus.text = "Không cập nhật được · Đang dùng dữ liệu đã tải trước đó (${Config.scrub(e.message)})"
             } finally {
                 loadingData = false
+                spinReload(false)
             }
         }
     }
@@ -435,20 +489,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- cập nhật: chỉ hiện thông báo ở góc khi có bản mới ----------
-    private fun checkUpdate() {
+    /** manual = true: báo kết quả (kể cả lỗi) trên dòng trạng thái; tự động: chỉ hiện khi có bản mới. */
+    private fun checkUpdate(manual: Boolean = false) {
         if (downloading) return
+        lastUpdateCheckAt = System.currentTimeMillis()
+        if (manual) tvStatus.text = "Đang kiểm tra bản cập nhật…"
         lifecycleScope.launch {
             try {
                 val r = Updater.latest()
-                if (r != null && r.code > Updater.localCode(this@MainActivity)) {
+                val local = Updater.localCode(this@MainActivity)
+                if (r != null && r.code > local) {
                     pending = r
                     pillUpdate.text = "Có bản mới · Cập nhật"
                     pillUpdate.visibility = View.VISIBLE
+                    if (manual) tvStatus.text = "Có bản mới: build ${r.code} (đang dùng build $local)"
+                    // Hiện hộp thoại một lần cho mỗi bản mới để người dùng thấy ngay, không chỉ ở nút nhỏ góc dưới
+                    if (manual || prefs.getInt("notified_build", 0) != r.code) {
+                        prefs.edit().putInt("notified_build", r.code).apply()
+                        confirmUpdate(r)
+                    }
                 } else {
                     pending = null
                     pillUpdate.visibility = View.GONE
+                    if (manual) tvStatus.text = if (r == null) "Chưa tìm thấy bản phát hành nào trên GitHub"
+                        else "Bạn đang dùng bản mới nhất (build $local)"
                 }
-            } catch (_: Exception) { /* im lặng: không có mạng / chưa cấu hình repo */ }
+            } catch (e: Exception) {
+                if (manual) tvStatus.text = "Không kiểm tra được bản cập nhật: ${Config.scrub(e.message)}"
+            }
         }
     }
 
@@ -501,6 +569,8 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(this, PlayerActivity::class.java)
             .putExtra("url", option.url).putExtra("name", ch.name)
             .putExtra("headers", HashMap(option.headers))
+            .putExtra("format", option.format)
+            .putStringArrayListExtra("alt_labels", ArrayList(option.fallbacks.map { it.label }))
             .putStringArrayListExtra("alt_urls", ArrayList(option.fallbacks.map { it.url }))
             .putExtra("alt_headers", ArrayList(option.fallbacks.map { HashMap(it.headers) })))
     }
