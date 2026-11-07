@@ -8,6 +8,8 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -91,6 +93,35 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(18), dp(14), dp(18), 0)
         }
 
+        // ---- logo + tên ứng dụng ----
+        val brand = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, 0, dp(10))
+        }
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.app_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = Config.APP_NAME
+        }
+        Glass.clipRound(logo, 12f)
+        brand.addView(logo, LinearLayout.LayoutParams(dp(46), dp(46)))
+        val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val spaceAt = Config.APP_NAME.indexOf(' ')
+        val nameSpan = SpannableString(Config.APP_NAME).apply {
+            if (spaceAt > 0) {
+                setSpan(ForegroundColorSpan(Color.WHITE), 0, spaceAt, 0)
+                setSpan(ForegroundColorSpan(Glass.AMBER), spaceAt + 1, length, 0)
+            } else setSpan(ForegroundColorSpan(Color.WHITE), 0, length, 0)
+        }
+        brandText.addView(TextView(this).apply {
+            text = nameSpan; textSize = 22f; setTypeface(typeface, Typeface.BOLD)
+        })
+        brandText.addView(TextView(this).apply {
+            text = Config.APP_TAGLINE; setTextColor(Glass.TEXT2); textSize = 12f
+        })
+        brand.addView(brandText, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(12) })
+        col.addView(brand, LinearLayout.LayoutParams(MATCH, WRAP))
+
         // ---- thanh trên: đồng hồ + nút chức năng (kính) ----
         val bar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -169,18 +200,24 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- link ----------
     private fun askLink() {
+        // Link có sẵn của ứng dụng không hiện trong ô nhập; chỉ hiện link do chính người dùng đã lưu.
+        val saved = prefs.getString("url", null)?.trim().orEmpty()
         val et = EditText(this).apply {
             hint = Config.LINK_HINT
-            setText(prefs.getString("url", Config.DEFAULT_SOURCE_URL))
+            setText(if (saved.isEmpty() || saved == Config.DEFAULT_SOURCE_URL) "" else saved)
             setSingleLine()
             setTextColor(Color.WHITE); setHintTextColor(0x80FFFFFF.toInt())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         AlertDialog.Builder(this)
-            .setTitle("Link index.json / JSON / M3U")
+            .setTitle("Nhập link của bạn")
+            .setMessage("Để trống để dùng nguồn có sẵn của ứng dụng.")
             .setView(et)
             .setPositiveButton("Lưu") { _, _ ->
-                prefs.edit().putString("url", et.text.toString().trim()).apply()
+                val value = et.text.toString().trim()
+                if (value.isEmpty()) prefs.edit().remove("url").apply()
+                else prefs.edit().putString("url", value).apply()
+                lastSig = ""
                 load()
             }
             .setNegativeButton("Huỷ", null)
@@ -196,19 +233,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun load(silent: Boolean = false) {
         if (loadingData) return
-        val savedUrl = prefs.getString("url", null)?.takeIf { it.isNotBlank() }
-        // Chuyển link sport.json cũ của Api-JK sang index.json để kích hoạt danh mục nhiều nhà đài.
+        val savedUrl = prefs.getString("url", null)?.trim()?.takeIf { it.isNotBlank() }
+        // Link sport.json cũ của Api-JK được chuyển sang nguồn mặc định (index.json nhiều nhà đài).
         val isOldApiJkSportLink = savedUrl != null && savedUrl.contains("Api-JK", true) &&
             savedUrl.substringBefore("?").endsWith("/sport.json", true)
-        val url = if (savedUrl == null || isOldApiJkSportLink) {
-            prefs.edit().putString("url", Config.DEFAULT_SOURCE_URL).apply()
-            Config.DEFAULT_SOURCE_URL
-        } else savedUrl
-        if (url.isBlank()) {
-            tvStatus.text = "Chưa có link. Bấm “Nhập link” để bắt đầu."
-            if (!silent) askLink()
-            return
-        }
+        if (isOldApiJkSportLink || savedUrl == Config.DEFAULT_SOURCE_URL) prefs.edit().remove("url").apply()
+        val url = if (savedUrl == null || isOldApiJkSportLink) Config.DEFAULT_SOURCE_URL else savedUrl
         loadingData = true
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
         lifecycleScope.launch {
@@ -220,10 +250,12 @@ class MainActivity : AppCompatActivity() {
                 lastDataRefreshAt = System.currentTimeMillis()
                 lastSig = ""
                 render(true)
-                tvStatus.text = "Đã cập nhật ${all.size} trận/kênh · ${result.stationCount} nhà đài · Tự làm mới mỗi ${Config.DATA_REFRESH_MIN} phút"
+                tvStatus.text = "Đã cập nhật ${all.size} trận/kênh · ${result.stationCount} nhà đài" +
+                    (if (result.failedStations.isNotEmpty()) " · ${result.failedStations.size} nguồn tạm lỗi" else "") +
+                    " · Tự làm mới mỗi ${Config.DATA_REFRESH_MIN} phút"
             } catch (e: Exception) {
-                if (all.isEmpty()) tvStatus.text = "Lỗi tải dữ liệu: ${e.message}"
-                else tvStatus.text = "Không cập nhật được · Đang dùng dữ liệu đã tải trước đó (${e.message})"
+                if (all.isEmpty()) tvStatus.text = "Lỗi tải dữ liệu: ${Config.scrub(e.message)}"
+                else tvStatus.text = "Không cập nhật được · Đang dùng dữ liệu đã tải trước đó (${Config.scrub(e.message)})"
             } finally {
                 loadingData = false
             }

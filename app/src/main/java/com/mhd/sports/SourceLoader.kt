@@ -1,27 +1,40 @@
 package com.mhd.sports
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.net.URI
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Locale
 import java.util.TimeZone
 
 /** Đọc M3U/M3U8, JSON thông thường, JSON trận đấu Chuối Chiên và index.json nhiều nhà đài. */
 object SourceLoader {
-    data class Result(val channels: List<Channel>, val stationCount: Int, val stationNames: List<String>)
+    data class Result(
+        val channels: List<Channel>,
+        val stationCount: Int,
+        val stationNames: List<String>,
+        val failedStations: List<String> = emptyList()
+    )
+
     private data class Document(val text: String, val finalUrl: String)
+    private data class StationEntry(val name: String, val logo: String?, val url: String)
 
     private val URL_KEYS = listOf("url", "link", "stream", "stream_url", "src", "m3u8", "source", "play_url")
     private val ATTR = Regex("""([\w-]+)="([^"]*)"""")
-    private val FORMATS = listOf(
-        "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm",
-        "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm",
-        "dd/MM/yyyy HH:mm", "HH:mm"
+
+    // Khoá giờ bắt đầu / kết thúc thường gặp trong các API trận đấu
+    private val START_KEYS = arrayOf(
+        "matchTime", "match_time", "startTime", "start_time", "start", "kickoff", "kickOff", "kick_off",
+        "begin", "scheduledAt", "scheduled_at", "datetime", "dateTime", "timestamp", "time", "date"
+    )
+    private val END_KEYS = arrayOf("endTime", "end_time", "end", "stop", "finishTime", "finish_time")
+    private val STATUS_KEYS = arrayOf(
+        "status", "state", "matchStatus", "match_status", "statusText", "status_text", "isLive", "is_live", "live"
     )
 
     suspend fun load(url: String): List<Channel> = loadCatalog(url).channels
@@ -31,40 +44,63 @@ object SourceLoader {
         val parsed = runCatching { JSONTokener(root.text).nextValue() }.getOrNull()
         if (parsed is JSONObject && parsed.optJSONArray("stations") != null) {
             val stations = parsed.optJSONArray("stations")!!
-            val all = mutableListOf<Channel>()
-            val names = mutableListOf<String>()
+            val entries = mutableListOf<StationEntry>()
+            val declared = mutableSetOf<String>()
             for (i in 0 until stations.length()) {
                 val station = stations.optJSONObject(i) ?: continue
-                if (!station.optBoolean("enabled", true)) continue
-                val stationName = station.optString("name").ifBlank { station.optString("id") }.ifBlank { "Nhà đài ${i + 1}" }
                 val source = station.optString("url").trim()
                 if (source.isBlank()) continue
                 val stationUrl = resolveRelative(root.finalUrl, source)
-                val doc = fetch(stationUrl)
+                declared += normalizeUrl(stationUrl)
+                if (!station.optBoolean("enabled", true)) continue
+                val stationName = station.optString("name").ifBlank { station.optString("id") }
+                    .ifBlank { "Nhà đài ${i + 1}" }
                 val stationLogo = station.optString("logo").takeIf { it.startsWith("http") }
-                val items = parseDocument(doc.text, doc.finalUrl, stationName, stationLogo, forceStationGroup = true)
-                if (items.isNotEmpty()) {
-                    all += items
-                    names += stationName
-                }
+                entries += StationEntry(stationName, stationLogo, stationUrl)
             }
-            if (all.isEmpty()) error("index.json hợp lệ nhưng chưa có nhà đài nào trả về trận đấu hoặc link phát")
-            Result(all, names.size, names)
+            // Gộp luồng có sẵn trong ứng dụng (bỏ qua nếu index.json đã khai báo, kể cả đang tắt)
+            Config.BUILTIN_STATIONS.forEach { b ->
+                if (normalizeUrl(b.url) !in declared) entries += StationEntry(b.name, b.logo, b.url)
+            }
+
+            // Tải song song; một nhà đài lỗi không làm hỏng cả danh sách
+            val outcomes = coroutineScope {
+                entries.map { e -> async { runCatching { loadStation(e) } } }.awaitAll()
+            }
+            val all = mutableListOf<Channel>()
+            val names = mutableListOf<String>()
+            val failed = mutableListOf<String>()
+            entries.forEachIndexed { i, e ->
+                val items = outcomes[i].getOrNull()
+                if (items == null) failed += e.name
+                else if (items.isNotEmpty()) { all += items; names += e.name }
+            }
+            if (all.isEmpty()) {
+                error("Chưa có nhà đài nào trả về trận đấu hoặc link phát" +
+                    if (failed.isNotEmpty()) " (${failed.size} nguồn không tải được)" else "")
+            }
+            Result(all, names.size, names, failed)
         } else {
             val stationName = inferStationName(root.finalUrl)
             val items = parseDocument(root.text, root.finalUrl, stationName, null)
-            if (items.isEmpty()) error("JSON đã tải nhưng không tìm thấy trận đấu/kênh có link phát")
+            if (items.isEmpty()) error("Nguồn đã tải nhưng không tìm thấy trận đấu/kênh có link phát")
             Result(items, items.map { it.group }.distinct().size, items.map { it.group }.distinct())
         }
     }
 
+    private fun loadStation(e: StationEntry): List<Channel> {
+        val doc = fetch(e.url)
+        return parseDocument(doc.text, doc.finalUrl, e.name, e.logo, forceStationGroup = true)
+    }
+
+    // Thông báo lỗi không kèm link để không lộ nguồn mặc định
     private fun fetch(url: String): Document {
         val requestUrl = cacheBusted(url)
         Net.client.newCall(Net.req(requestUrl)).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code}: $url")
+            if (!response.isSuccessful) error("máy chủ trả về HTTP ${response.code}")
             val finalUrl = response.request.url.toString().substringBefore("?_mhd_refresh=").substringBefore("&_mhd_refresh=")
             val text = (response.body?.string() ?: "").trim().removePrefix("\uFEFF")
-            if (text.isBlank()) error("Nguồn trả về nội dung trống: $url")
+            if (text.isBlank()) error("nguồn trả về nội dung trống")
             return Document(text, finalUrl)
         }
     }
@@ -74,6 +110,8 @@ object SourceLoader {
         val separator = if (url.contains("?")) "&" else "?"
         return url + separator + "_mhd_refresh=" + System.currentTimeMillis()
     }
+
+    private fun normalizeUrl(url: String): String = url.trim().substringBefore("#").trimEnd('/').lowercase()
 
     private fun resolveRelative(base: String, value: String): String =
         runCatching { URI(base).resolve(value).toString() }.getOrDefault(value)
@@ -161,11 +199,19 @@ object SourceLoader {
                 "${score.opt("home") ?: "-"} - ${score.opt("away") ?: "-"}"
             } else ""
             val detail = listOf(leagueName, scoreText).filter { it.isNotBlank() }.joinToString("  ·  ")
-            val start = parseTime(match.opt("matchTime") ?: match.opt("time"))
-            val end = parseTime(match.opt("endTime") ?: match.opt("end_time"))
-            val status = match.optString("status").takeIf { it.isNotBlank() }
+
+            var start = timeOf(match.any(*START_KEYS))
+            if (start == null) {
+                // Một số API tách ngày và giờ thành hai trường
+                val d = match.str("date", "matchDate", "match_date")
+                val t = match.str("time", "matchHour", "hour")
+                if (d != null && t != null) start = parseTime("$d $t")
+            }
+            val end = timeOf(match.any(*END_KEYS))
+            val status = statusOf(match)
+
             out += Channel(
-                name = matchName,
+                name = cleanName(matchName),
                 logo = leagueLogo ?: home?.optString("logo")?.takeIf { it.startsWith("http") } ?: away?.optString("logo")?.takeIf { it.startsWith("http") },
                 url = options.firstOrNull()?.url.orEmpty(),
                 group = stationName,
@@ -175,14 +221,34 @@ object SourceLoader {
                 streams = options,
                 detail = detail,
                 providerStatus = status,
-                groupLogo = stationLogo
+                groupLogo = stationLogo,
+                logoFit = true
             )
         }
         return out
     }
 
+    private fun JSONObject.any(vararg keys: String): Any? =
+        keys.firstNotNullOfOrNull { k -> opt(k).takeIf { it != null && it != JSONObject.NULL } }
+
     private fun JSONObject.str(vararg keys: String): String? =
         keys.firstNotNullOfOrNull { key -> optString(key, "").takeIf { it.isNotBlank() && it != "null" } }
+
+    /** Trạng thái có thể là chuỗi, số, boolean hoặc đối tượng {short,long,...}. */
+    private fun statusOf(match: JSONObject): String? {
+        val v = match.any(*STATUS_KEYS) ?: return null
+        return when (v) {
+            is Boolean -> if (v) "live" else null
+            is JSONObject -> v.str("short", "code", "name", "long", "text", "value")
+            else -> v.toString().takeIf { it.isNotBlank() && it != "null" }
+        }
+    }
+
+    /** Giờ có thể là chuỗi/số hoặc đối tượng lồng nhau. */
+    private fun timeOf(v: Any?): Long? = when (v) {
+        is JSONObject -> parseTime(v.any("start", "time", "datetime", "iso", "utc", "value", "timestamp"))
+        else -> parseTime(v)
+    }
 
     private fun jsonHeaders(node: JSONObject): Map<String, String> {
         val headers = linkedMapOf<String, String>()
@@ -202,14 +268,17 @@ object SourceLoader {
             is JSONObject -> {
                 val url = URL_KEYS.firstNotNullOfOrNull { key -> node.str(key)?.takeIf { it.startsWith("http") } }
                 if (url != null) {
+                    val rawName = node.str("name", "title", "channel", "match") ?: "Kênh"
                     out += Channel(
-                        name = node.str("name", "title", "channel", "match") ?: "Kênh",
+                        name = cleanName(rawName),
                         logo = node.str("logo", "thumbnail", "thumb", "image", "icon", "poster"),
                         url = url,
                         group = node.str("group", "category", "league", "group_title") ?: group,
-                        start = parseTime(node.opt("start") ?: node.opt("start_time") ?: node.opt("time") ?: node.opt("begin") ?: node.opt("kickoff")),
-                        end = parseTime(node.opt("end") ?: node.opt("end_time") ?: node.opt("stop")),
-                        headers = jsonHeaders(node)
+                        start = timeOf(node.any("start", "start_time", "startTime", "matchTime", "time", "begin", "kickoff"))
+                            ?: timeFromName(rawName),
+                        end = timeOf(node.any("end", "end_time", "endTime", "stop")),
+                        headers = jsonHeaders(node),
+                        providerStatus = statusOf(node)
                     )
                 } else {
                     val nextGroup = node.str("group_name", "group", "category", "name", "title") ?: group
@@ -242,12 +311,13 @@ object SourceLoader {
                 }
             } else if (line.isNotEmpty() && !line.startsWith("#")) {
                 val m = meta ?: continue
+                val rawName = name.ifBlank { m["tvg-name"] ?: "Kênh" }
                 out += Channel(
-                    name = name.ifBlank { m["tvg-name"] ?: "Kênh" },
-                    logo = m["tvg-logo"] ?: m["logo"],
+                    name = cleanName(rawName),
+                    logo = (m["tvg-logo"] ?: m["logo"])?.takeIf { it.isNotBlank() },
                     url = line,
                     group = m["group-title"] ?: "Khác",
-                    start = parseTime(m["start"] ?: m["tvg-start"]),
+                    start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
                     headers = headers
                 )
@@ -258,34 +328,101 @@ object SourceLoader {
         return out
     }
 
+    // ---------- tên trận / giờ ----------
+    private val EMOJI = Regex("""[\p{So}\p{Cs}\uFE0F\u200D]""")
+    private val MULTI_SPACE = Regex("""\s{2,}""")
+    private val NAME_TIME = Regex("""(?<!\d)(\d{1,2}):(\d{2})(?!\d)""")
+    private val NAME_DATE = Regex("""(?<!\d)(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?(?!\d)""")
+
+    /** Bỏ emoji khỏi tên, giữ nguyên chữ có dấu. */
+    private fun cleanName(name: String): String =
+        name.replace(EMOJI, "").replace(MULTI_SPACE, " ").trim().ifBlank { name.trim() }
+
+    /** Đọc giờ từ tên trận, ví dụ "15:30 06/11 A vs B" (không có ngày => hôm nay). */
+    private fun timeFromName(name: String): Long? {
+        val t = NAME_TIME.find(name) ?: return null
+        val h = t.groupValues[1].toInt()
+        val mi = t.groupValues[2].toInt()
+        if (h > 23 || mi > 59) return null
+        val cal = Calendar.getInstance()
+        var y = cal.get(Calendar.YEAR); var mo = cal.get(Calendar.MONTH); var d = cal.get(Calendar.DAY_OF_MONTH)
+        val dm = NAME_DATE.find(name)
+        if (dm != null) {
+            val dd = dm.groupValues[1].toInt(); val mm = dm.groupValues[2].toInt()
+            if (dd in 1..31 && mm in 1..12) {
+                d = dd; mo = mm - 1
+                dm.groupValues[3].takeIf { it.isNotEmpty() }?.toIntOrNull()?.let { yy -> y = if (yy < 100) 2000 + yy else yy }
+            }
+        }
+        cal.set(y, mo, d, h, mi, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    // ---------- đọc thời gian ----------
+    // ISO-8601 / "yyyy-MM-dd HH:mm[:ss[.SSS]]" kèm múi giờ tuỳ chọn (Z, +07:00, +0700, +07)
+    private val ISO_TIME = Regex(
+        """^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:[.,]\d+)?)?\s*(Z|UTC|GMT|[+-]\d{2}(?::?\d{2})?)?$""",
+        RegexOption.IGNORE_CASE
+    )
+    // "dd/MM/yyyy HH:mm[:ss]"
+    private val DMY_TIME = Regex(
+        """^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*(Z|UTC|GMT|[+-]\d{2}(?::?\d{2})?)?$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val HM_ONLY = Regex("""^(\d{1,2}):(\d{2})(?::(\d{2}))?$""")
+
+    private fun offsetMinutes(tz: String): Int {
+        if (tz.equals("Z", true) || tz.equals("UTC", true) || tz.equals("GMT", true)) return 0
+        val sign = if (tz.startsWith("-")) -1 else 1
+        val digits = tz.drop(1).replace(":", "")
+        val hh = digits.take(2).toIntOrNull() ?: return 0
+        val mm = digits.drop(2).toIntOrNull() ?: 0
+        return sign * (hh * 60 + mm)
+    }
+
+    private fun build(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, tz: String?): Long? {
+        if (mo !in 1..12 || d !in 1..31 || h !in 0..23 || mi !in 0..59 || s !in 0..59) return null
+        return if (tz.isNullOrBlank()) {
+            Calendar.getInstance().apply { clear(); set(y, mo - 1, d, h, mi, s) }.timeInMillis
+        } else {
+            val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { clear(); set(y, mo - 1, d, h, mi, s) }.timeInMillis
+            utc - offsetMinutes(tz) * 60_000L
+        }
+    }
+
     fun parseTime(value: Any?): Long? {
         when (value) {
+            null -> return null
             is Number -> return value.toLong().let { if (it < 100_000_000_000L) it * 1000 else it }
             is String -> {
                 val s = value.trim()
+                if (s.isEmpty() || s == "null") return null
                 s.toLongOrNull()?.let { return if (it < 100_000_000_000L) it * 1000 else it }
-                // API Chuối Chiên dùng ISO-8601 UTC, ví dụ 2026-11-06T19:30:00Z.
-                val isoPatterns = listOf("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'")
-                for (pattern in isoPatterns) {
-                    try {
-                        val parser = SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC"); isLenient = false }
-                        parser.parse(s)?.let { return it.time }
-                    } catch (_: Exception) { }
+                ISO_TIME.matchEntire(s)?.let { m ->
+                    val g = m.groupValues
+                    return build(
+                        g[1].toInt(), g[2].toInt(), g[3].toInt(),
+                        g[4].ifEmpty { "0" }.toInt(), g[5].ifEmpty { "0" }.toInt(), g[6].ifEmpty { "0" }.toInt(),
+                        g[7].ifEmpty { null }
+                    )
                 }
-                for (pattern in FORMATS) {
-                    try {
-                        val date = SimpleDateFormat(pattern, Locale.US).apply { isLenient = false }.parse(s) ?: continue
-                        if (pattern == "HH:mm") {
-                            val tm = Calendar.getInstance().apply { time = date }
-                            return Calendar.getInstance().apply {
-                                set(Calendar.HOUR_OF_DAY, tm.get(Calendar.HOUR_OF_DAY))
-                                set(Calendar.MINUTE, tm.get(Calendar.MINUTE))
-                                set(Calendar.SECOND, 0)
-                                set(Calendar.MILLISECOND, 0)
-                            }.timeInMillis
-                        }
-                        return date.time
-                    } catch (_: Exception) { }
+                DMY_TIME.matchEntire(s)?.let { m ->
+                    val g = m.groupValues
+                    return build(
+                        g[3].toInt(), g[2].toInt(), g[1].toInt(),
+                        g[4].ifEmpty { "0" }.toInt(), g[5].ifEmpty { "0" }.toInt(), g[6].ifEmpty { "0" }.toInt(),
+                        g[7].ifEmpty { null }
+                    )
+                }
+                HM_ONLY.matchEntire(s)?.let { m ->
+                    val g = m.groupValues
+                    val h = g[1].toInt(); val mi = g[2].toInt()
+                    if (h > 23 || mi > 59) return null
+                    return Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, mi)
+                        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis
                 }
             }
         }

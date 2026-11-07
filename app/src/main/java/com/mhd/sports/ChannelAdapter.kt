@@ -79,6 +79,9 @@ class ChannelAdapter(
         val (ch, st) = items[position]
         h.title.text = ch.name
         bindSub(h, ch, st)
+        val pad = if (ch.logoFit) (18 * h.card.resources.displayMetrics.density).toInt() else 0
+        h.img.scaleType = if (ch.logoFit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+        h.img.setPadding(pad, pad, pad, pad)
         if (ch.logo.isNullOrBlank()) { h.img.dispose(); h.img.setImageDrawable(null) }
         else h.img.load(ch.logo) { crossfade(true) }
 
@@ -130,6 +133,8 @@ class ChannelAdapter(
                 parts += base
             }
         }
+        if (ch.start == null && st == State.LIVE) parts += "Đang phát trực tiếp"
+        if (ch.start == null && st == State.UPCOMING) parts += "Chưa có giờ phát"
         h.sub.text = parts.joinToString("  |  ")
         h.sub.setTextColor(if (st == State.LIVE) 0xFFFF9A3C.toInt() else Glass.TEXT2)
     }
