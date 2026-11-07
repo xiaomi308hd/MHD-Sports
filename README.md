@@ -5,8 +5,10 @@ Tên gói: `com.mhd.sports`
 Ứng dụng Android phát trực tiếp thể thao từ link **m3u8 / M3U / JSON** (link rút gọn của bên thứ 3 vẫn dùng được).
 
 ## Tính năng
-- Nhập link cá nhân (nút **Nhập link**), ô nhập có dòng chờ: *nhập link của bạn để tôi có thể nhận biết*
-- Gắn sẵn link trực tiếp: sửa `DEFAULT_SOURCE_URL` trong `app/src/main/java/com/mhd/sports/Models.kt`
+- Nhập link cá nhân (nút **Nhập link**). Link có sẵn của ứng dụng **không hiện** trong ô nhập; để trống rồi Lưu là dùng lại nguồn có sẵn. Thông báo lỗi cũng không in link.
+- Gắn sẵn link: sửa `DEFAULT_SOURCE_URL` trong `app/src/main/java/com/mhd/sports/Models.kt`
+- Luồng bổ sung có sẵn (iptv-org: thể thao quốc tế, truyền hình Việt Nam): khai báo ở `Config.BUILTIN_STATIONS` (Models.kt) và `github-data/index.json`
+- Trang chủ có logo + tên ứng dụng (`res/drawable-nodpi/app_logo.png`, `Config.APP_NAME`)
 - Giao diện liquid glass tông đen cam, nền sân vận động lấy từ ảnh thumbnail đã bỏ chữ (`res/drawable-nodpi/bg_stadium.jpg`)
 - Trận đang phát hiện đồng hồ đếm phút:giây tính từ giờ bắt đầu
 - Nút **Sắp xếp**: ghim, Lên/Xuống, **Ẩn/Hiện** từng nhóm
