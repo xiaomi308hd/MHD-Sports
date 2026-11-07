@@ -1,8 +1,14 @@
 package com.mhd.sports
 
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 object Net {
     const val UA =
@@ -15,6 +21,24 @@ object Net {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Client dự phòng CHỈ dùng khi phát video đã thử hết các cách khác: chấp nhận chứng chỉ TLS lỗi/hết hạn,
+     * TLS đời cũ và HTTP thường. Không dùng để tải danh sách nguồn.
+     */
+    val lenientClient: OkHttpClient by lazy {
+        val trustAll = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(trustAll), SecureRandom()) }
+        client.newBuilder()
+            .sslSocketFactory(ctx.socketFactory, trustAll)
+            .hostnameVerifier { _, _ -> true }
+            .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
+            .build()
+    }
 
     fun req(url: String): Request = Request.Builder()
         .url(url)

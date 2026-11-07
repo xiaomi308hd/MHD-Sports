@@ -35,10 +35,15 @@ object Config {
 
 enum class State { LIVE, UPCOMING, ENDED, ALWAYS }
 
+/** Một địa chỉ phát (dùng làm dự phòng khi luồng chính lỗi). */
+data class StreamSource(val url: String, val headers: Map<String, String> = emptyMap())
+
+/** Một lựa chọn phát. FLV và HLS cùng bình luận viên/chất lượng được gộp: url là luồng ưu tiên, fallbacks là dự phòng. */
 data class StreamOption(
     val label: String,
     val url: String,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val fallbacks: List<StreamSource> = emptyList()
 )
 
 data class Channel(
@@ -54,7 +59,8 @@ data class Channel(
     val providerStatus: String? = null,
     val groupLogo: String? = null,
     /** true: logo là logo giải/đội (vuông) => hiển thị nguyên hình, không cắt. */
-    val logoFit: Boolean = false
+    val logoFit: Boolean = false,
+    val sport: Sport? = null
 ) {
     private enum class Provider { LIVE, ENDED, UPCOMING, UNKNOWN }
 

@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
     private lateinit var chipFilter: TextView
     private lateinit var pillUpdate: TextView
+    private val sportChips = mutableMapOf<Sport?, TextView>()
 
     private var all: List<Channel> = emptyList()
     private var lastSig = ""
@@ -155,6 +156,21 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
+        // ---- lọc theo bộ môn ----
+        val sportRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        fun addSportChip(sport: Sport?, label: String) {
+            val chip = Glass.chip(this, label, 13f).apply { setOnClickListener { selectSport(sport) } }
+            sportChips[sport] = chip
+            sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.rightMargin = dp(8) })
+        }
+        addSportChip(null, "Tất cả")
+        Sport.values().forEach { addSportChip(it, it.label) }
+        col.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(sportRow, FrameLayout.LayoutParams(WRAP, WRAP))
+        }, LinearLayout.LayoutParams(MATCH, WRAP).also { it.topMargin = dp(10) })
+        styleSportChips()
+
         tvStatus = TextView(this).apply {
             setTextColor(Glass.TEXT2); textSize = 12f; setPadding(dp(6), dp(8), 0, dp(2))
         }
@@ -186,6 +202,24 @@ class MainActivity : AppCompatActivity() {
         refreshDataIfDue()
     }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
+
+    private fun currentSport(): Sport? {
+        val name = prefs.getString("sport", "") ?: ""
+        return Sport.values().firstOrNull { it.name == name }
+    }
+
+    private fun selectSport(sport: Sport?) {
+        prefs.edit().putString("sport", sport?.name ?: "").apply()
+        styleSportChips()
+        render(true)
+    }
+
+    private fun styleSportChips() {
+        val cur = currentSport()
+        sportChips.forEach { (sport, chip) ->
+            chip.background = if (sport == cur) Glass.accentButton(this) else Glass.button(this)
+        }
+    }
 
     private fun styleFilter() {
         val on = prefs.getBoolean("filter", true)
@@ -281,9 +315,11 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         val filter = prefs.getBoolean("filter", true)
         val hid = hidden()
+        val sport = currentSport()
         val items = all.map { it to it.state(now) }
             .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
-        val sig = filter.toString() + hid.sorted().joinToString(",") + "#" +
+            .filter { sport == null || it.first.sport == sport }
+        val sig = filter.toString() + (sport?.name ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) {
             adapters.forEach { it.tickTimers() }   // chỉ đếm giờ, không dựng lại
@@ -293,6 +329,7 @@ class MainActivity : AppCompatActivity() {
 
         content.removeAllViews(); adapters.clear()
         tvStatus.text = when {
+            items.isEmpty() && sport != null -> "Chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” để xem đầy đủ."
             items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
             else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} nhà đài" +
                 if (hid.isNotEmpty()) " · ${hid.size} nhóm đang ẩn" else ""
@@ -450,19 +487,21 @@ class MainActivity : AppCompatActivity() {
             val labels = options.map { it.label }.toTypedArray()
             AlertDialog.Builder(this)
                 .setTitle("${ch.name}\nChọn bình luận viên / chất lượng")
-                .setItems(labels) { _, which -> playStream(ch, options[which].url, options[which].headers) }
+                .setItems(labels) { _, which -> playStream(ch, options[which]) }
                 .setNegativeButton("Đóng", null)
                 .showGlass()
         } else if (options.size == 1) {
-            playStream(ch, options[0].url, options[0].headers)
+            playStream(ch, options[0])
         } else {
-            playStream(ch, ch.url, ch.headers)
+            playStream(ch, StreamOption("Phát", ch.url, ch.headers))
         }
     }
 
-    private fun playStream(ch: Channel, url: String, headers: Map<String, String>) {
+    private fun playStream(ch: Channel, option: StreamOption) {
         startActivity(Intent(this, PlayerActivity::class.java)
-            .putExtra("url", url).putExtra("name", ch.name)
-            .putExtra("headers", HashMap(headers)))
+            .putExtra("url", option.url).putExtra("name", ch.name)
+            .putExtra("headers", HashMap(option.headers))
+            .putStringArrayListExtra("alt_urls", ArrayList(option.fallbacks.map { it.url }))
+            .putExtra("alt_headers", ArrayList(option.fallbacks.map { HashMap(it.headers) })))
     }
 }

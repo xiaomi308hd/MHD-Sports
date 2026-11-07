@@ -166,7 +166,7 @@ object SourceLoader {
             val matchName = listOf(homeName, awayName).filter { it.isNotBlank() }.joinToString(" vs ")
                 .ifBlank { match.optString("name", "Trận đấu") }
 
-            val options = mutableListOf<StreamOption>()
+            val raws = mutableListOf<RawStream>()
             val seen = mutableSetOf<String>()
             val keys = match.keys().asSequence().filter { it == "blvs" || it.startsWith("blvs_") }.toList()
             keys.forEach { key ->
@@ -179,12 +179,13 @@ object SourceLoader {
                         val stream = streams.optJSONObject(k) ?: continue
                         val streamUrl = stream.optString("url").trim()
                         if (!streamUrl.startsWith("http") || !seen.add(streamUrl)) continue
-                        val quality = stream.optString("label").ifBlank { "Phát ${k + 1}" }
-                        val label = listOf(commentatorName, quality).filter { it.isNotBlank() }.joinToString(" · ")
-                        options += StreamOption(label.ifBlank { quality }, streamUrl, jsonHeaders(stream))
+                        val label = stream.optString("label")
+                        val hint = listOf(key, label, stream.str("type", "format", "protocol", "kind").orEmpty()).joinToString(" ")
+                        raws += RawStream(commentatorName, label.ifBlank { "Phát ${k + 1}" }, streamUrl, jsonHeaders(stream), formatOf(streamUrl, hint))
                     }
                 }
             }
+            val options = mergeStreams(raws).toMutableList()
 
             // Hỗ trợ cả API JSON có url trực tiếp ở cấp trận.
             if (options.isEmpty()) {
@@ -209,6 +210,10 @@ object SourceLoader {
             }
             val end = timeOf(match.any(*END_KEYS))
             val status = statusOf(match)
+            val sportField = match.any("sport", "sportType", "sport_type", "sportName", "sport_name", "category", "categoryName")
+                ?.let { if (it is JSONObject) it.str("name", "title", "label") else it.toString() }
+            // API trận đấu không ghi môn thì mặc định là bóng đá
+            val sport = SportDetector.detect(sportField, leagueName, matchName) ?: Sport.FOOTBALL
 
             out += Channel(
                 name = cleanName(matchName),
@@ -222,10 +227,47 @@ object SourceLoader {
                 detail = detail,
                 providerStatus = status,
                 groupLogo = stationLogo,
-                logoFit = true
+                logoFit = true,
+                sport = sport
             )
         }
         return out
+    }
+
+    // ---------- gộp luồng FLV / HLS ----------
+    private enum class Fmt { HLS, OTHER, FLV }
+    private class RawStream(val commentator: String, val quality: String, val url: String, val headers: Map<String, String>, val fmt: Fmt)
+
+    private val FORMAT_WORDS = Regex("""(?i)\b(http[-_ ]?flv|flv|hls|m3u8)\b""")
+    private val SEPARATORS = Regex("""[\s\-_/|()\[\]·:]+""")
+
+    private fun formatOf(url: String, hint: String): Fmt {
+        val path = url.substringBefore('?').lowercase()
+        val h = hint.lowercase()
+        return when {
+            path.contains(".m3u8") -> Fmt.HLS
+            path.contains(".flv") -> Fmt.FLV
+            "hls" in h || "m3u8" in h -> Fmt.HLS
+            "flv" in h -> Fmt.FLV
+            else -> Fmt.OTHER
+        }
+    }
+
+    /** Cùng bình luận viên + cùng chất lượng (bỏ chữ FLV/HLS) => 1 mục; HLS phát trước, FLV làm dự phòng. */
+    private fun mergeStreams(raws: List<RawStream>): List<StreamOption> {
+        val groups = linkedMapOf<String, MutableList<RawStream>>()
+        raws.forEach { r ->
+            val quality = r.quality.replace(FORMAT_WORDS, " ").replace(SEPARATORS, " ").trim()
+            groups.getOrPut(r.commentator.trim().lowercase() + "#" + quality.lowercase()) { mutableListOf() } += r
+        }
+        return groups.values.map { list ->
+            val sorted = list.sortedBy { it.fmt.ordinal }
+            val first = sorted.first()
+            val quality = first.quality.replace(FORMAT_WORDS, " ").replace(SEPARATORS, " ").trim()
+            val label = listOf(first.commentator, quality).filter { it.isNotBlank() }.joinToString(" · ")
+                .ifBlank { "Phát trực tiếp" }
+            StreamOption(label, first.url, first.headers, sorted.drop(1).map { StreamSource(it.url, it.headers) })
+        }
     }
 
     private fun JSONObject.any(vararg keys: String): Any? =
@@ -278,7 +320,8 @@ object SourceLoader {
                             ?: timeFromName(rawName),
                         end = timeOf(node.any("end", "end_time", "endTime", "stop")),
                         headers = jsonHeaders(node),
-                        providerStatus = statusOf(node)
+                        providerStatus = statusOf(node),
+                        sport = SportDetector.detect(node.str("sport", "sport_type"), rawName, node.str("group", "category", "league", "group_title"), group)
                     )
                 } else {
                     val nextGroup = node.str("group_name", "group", "category", "name", "title") ?: group
@@ -319,7 +362,8 @@ object SourceLoader {
                     group = m["group-title"] ?: "Khác",
                     start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
-                    headers = headers
+                    headers = headers,
+                    sport = SportDetector.detect(rawName, m["group-title"])
                 )
                 meta = null
                 headers = linkedMapOf()
