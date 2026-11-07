@@ -37,3 +37,8 @@ Lần đầu cần bật "Cho phép cài từ nguồn không rõ" cho ứng dụ
 3. Tải file APK ở mục **Releases** (hoặc **Artifacts** của lần chạy).
 
 APK ký bằng `app/sportsplayer.jks` (khoá cố định để cập nhật đè được). Dùng cá nhân thì để nguyên; phát hành công khai hãy thay bằng keystore riêng và cất mật khẩu trong GitHub Secrets.
+
+## Nguồn bị lỗi HTTP khi phát
+Khi máy chủ trả mã lỗi (ví dụ 403), trình phát tự thử lần lượt: User-Agent trình duyệt → thêm Referer/Origin theo máy chủ phát → theo nguồn danh sách → giả lập VLC → giả lập ffmpeg, và báo rõ mã lỗi.
+Nếu nguồn cần header riêng, khai báo trong JSON: `"referer"`, `"origin"`, `"user_agent"`, `"cookie"` hoặc `"headers": {...}`;
+trong M3U dùng `#EXTVLCOPT:http-referrer=...` / `http-user-agent=...`; hoặc nối vào link: `https://...m3u8|User-Agent=abc&Referer=https://site`.

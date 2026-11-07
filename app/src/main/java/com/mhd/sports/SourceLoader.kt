@@ -54,7 +54,20 @@ object SourceLoader {
             }
         }
         name = name.replace(CLEAN, "").replace(Regex("\\s+"), " ").trim().trimStart('-', '|', ':', ' ')
-        return c.copy(name = name.ifBlank { c.name }, start = start)
+        var url = c.url
+        var hdrs = c.headers
+        val bar = url.indexOf('|')
+        if (bar > 0) { // kiểu Kodi: https://...m3u8|User-Agent=abc&Referer=https://site
+            val m = linkedMapOf<String, String>()
+            url.substring(bar + 1).split('&').forEach { kv ->
+                val i = kv.indexOf('=')
+                if (i > 0) m[kv.substring(0, i).trim()] =
+                    runCatching { java.net.URLDecoder.decode(kv.substring(i + 1), "UTF-8") }.getOrDefault(kv.substring(i + 1))
+            }
+            url = url.substring(0, bar)
+            hdrs = m + hdrs
+        }
+        return c.copy(name = name.ifBlank { c.name }, start = start, url = url, headers = hdrs)
     }
 
     private fun buildTime(h: Int, mi: Int, d: Int, mo: Int, y: String): Long? {
@@ -90,6 +103,18 @@ object SourceLoader {
     private fun JSONObject.str(vararg ks: String): String? =
         ks.firstNotNullOfOrNull { k -> optString(k, "").takeIf { it.isNotBlank() && it != "null" } }
 
+    private fun jsonHeaders(n: JSONObject): Map<String, String> {
+        val h = linkedMapOf<String, String>()
+        (n.opt("headers") as? JSONObject)?.let { o ->
+            for (k in o.keys()) o.optString(k).takeIf { it.isNotBlank() }?.let { h[k] = it }
+        }
+        n.str("referer", "referrer", "http_referrer")?.let { h["Referer"] = it }
+        n.str("origin")?.let { h["Origin"] = it }
+        n.str("user_agent", "useragent", "ua", "user-agent")?.let { h["User-Agent"] = it }
+        n.str("cookie")?.let { h["Cookie"] = it }
+        return h
+    }
+
     private fun walk(n: Any?, group: String, out: MutableList<Channel>) {
         when (n) {
             is JSONArray -> for (i in 0 until n.length()) walk(n.opt(i), group, out)
@@ -102,7 +127,8 @@ object SourceLoader {
                         url = url,
                         group = n.str("group", "category", "league", "group_title") ?: group,
                         start = parseTime(n.any("start", "start_time", "time", "begin", "kickoff")),
-                        end = parseTime(n.any("end", "end_time", "stop"))
+                        end = parseTime(n.any("end", "end_time", "stop")),
+                        headers = jsonHeaders(n)
                     )
                 } else {
                     val g = n.str("group_name", "group", "category", "name", "title") ?: group
@@ -120,11 +146,20 @@ object SourceLoader {
         val out = mutableListOf<Channel>()
         var meta: Map<String, String>? = null
         var name = ""
+        var hdr = linkedMapOf<String, String>()
         for (raw in t.lines()) {
             val l = raw.trim()
             if (l.startsWith("#EXTINF")) {
                 meta = ATTR.findAll(l).associate { it.groupValues[1].lowercase() to it.groupValues[2] }
                 name = l.substringAfterLast(",").trim()
+            } else if (l.startsWith("#EXTVLCOPT:")) {
+                val kv = l.removePrefix("#EXTVLCOPT:")
+                val v = kv.substringAfter('=', "")
+                when (kv.substringBefore('=').lowercase()) {
+                    "http-referrer", "http-referer" -> hdr["Referer"] = v
+                    "http-user-agent" -> hdr["User-Agent"] = v
+                    "http-origin" -> hdr["Origin"] = v
+                }
             } else if (l.isNotEmpty() && !l.startsWith("#")) {
                 val m = meta ?: continue
                 out += Channel(
@@ -133,9 +168,10 @@ object SourceLoader {
                     url = l,
                     group = m["group-title"] ?: "Khác",
                     start = parseTime(m["start"] ?: m["tvg-start"]),
-                    end = parseTime(m["end"])
+                    end = parseTime(m["end"]),
+                    headers = hdr
                 )
-                meta = null
+                meta = null; hdr = linkedMapOf()
             }
         }
         return out

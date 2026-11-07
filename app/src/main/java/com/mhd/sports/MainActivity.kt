@@ -370,6 +370,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openPlayer(ch: Channel) {
         startActivity(Intent(this, PlayerActivity::class.java)
-            .putExtra("url", ch.url).putExtra("name", ch.name))
+            .putExtra("url", ch.url).putExtra("name", ch.name)
+            .putExtra("headers", HashMap(ch.headers)))
     }
 }
