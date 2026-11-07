@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-07T00:00:00+07:00",
+  "stations": [
+    {
+      "id": "chuoichientv",
+      "name": "CHUỐI CHIẾN TV",
+      "logo": "",
+      "url": "https://raw.githubusercontent.com/guiterhd-bit/Api-JK/main/sport.json",
+      "enabled": true
+    }
+  ]
+}

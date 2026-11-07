@@ -45,3 +45,12 @@ trong M3U dùng `#EXTVLCOPT:http-referrer=...` / `http-user-agent=...`; hoặc n
 
 ## Màn hình phát
 Thanh thông tin kính ở phía trên (hiện cùng bộ nút điều khiển, bấm OK/chạm màn hình để hiện): tên trận bên trái; bên phải là độ phân giải thực tế đang giải mã, số khung hình/giây thực tế được vẽ, và tốc độ tải (trung bình 5 giây).
+
+## Nâng cấp nhiều nhà đài và tự làm mới dữ liệu GitHub
+
+Bản nâng cấp hiện đọc mặc định `index.json` tại:
+`https://raw.githubusercontent.com/guiterhd-bit/Api-JK/main/index.json`
+
+`index.json` quản lý danh sách nhà đài (`id`, `name`, `logo`, `url`, `enabled`). Mỗi nhà đài có thể trỏ tới một file JSON riêng. Ứng dụng tự tải lại dữ liệu khi mở lại và mỗi 5 phút khi đang chạy; sửa JSON trên GitHub không cần phát hành APK mới.
+
+Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, giải đấu, giờ thi đấu, tỷ số, trạng thái và các luồng trong `blvs[]`/`blvs_*[] .streams[]`. Mỗi trận hiển thị thành một thẻ; bấm thẻ để chọn bình luận viên và chất lượng phát. Xem `README_UPGRADE_VI.md` và `github-data/index.json` để cấu hình thêm nhà đài.

@@ -16,7 +16,12 @@ object Net {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    fun req(url: String): Request = Request.Builder().url(url).header("User-Agent", UA).build()
+    fun req(url: String): Request = Request.Builder()
+        .url(url)
+        .header("User-Agent", UA)
+        .header("Cache-Control", "no-cache, no-store, max-age=0")
+        .header("Pragma", "no-cache")
+        .build()
 
     /** Trả về (link cuối cùng sau khi giải rút gọn, Content-Type). */
     fun resolve(url: String, headers: Map<String, String> = emptyMap(), ua: String = UA): Pair<String, String?> {

@@ -97,7 +97,9 @@ class ChannelAdapter(
                 h.badge.visibility = View.VISIBLE
             }
             State.UPCOMING -> {
-                bg.setColor(0xB3000000.toInt()); h.badge.text = hm.format(Date(ch.start!!)); h.badge.visibility = View.VISIBLE
+                bg.setColor(0xB3000000.toInt())
+                h.badge.text = ch.start?.let { hm.format(Date(it)) } ?: "SẮP DIỄN RA"
+                h.badge.visibility = View.VISIBLE
             }
             State.ENDED -> {
                 bg.setColor(0xB3555555.toInt()); h.badge.text = "ĐÃ XONG"; h.badge.visibility = View.VISIBLE
@@ -117,17 +119,19 @@ class ChannelAdapter(
     }
 
     private fun bindSub(h: VH, ch: Channel, st: State) {
-        val s = ch.start
-        if (s == null) { h.sub.text = ""; return }
-        val base = fmt.format(Date(s))
-        if (st == State.LIVE) {
-            val sec = ((System.currentTimeMillis() - s) / 1000).coerceAtLeast(0)
-            h.sub.text = base + " · Đang phát " + String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
-            h.sub.setTextColor(0xFFFF9A3C.toInt())
-        } else {
-            h.sub.text = base
-            h.sub.setTextColor(Glass.TEXT2)
+        val parts = mutableListOf<String>()
+        ch.detail?.takeIf { it.isNotBlank() }?.let { parts += it }
+        ch.start?.let { s ->
+            val base = fmt.format(Date(s))
+            if (st == State.LIVE) {
+                val sec = ((System.currentTimeMillis() - s) / 1000).coerceAtLeast(0)
+                parts += base + " · " + String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
+            } else {
+                parts += base
+            }
         }
+        h.sub.text = parts.joinToString("  |  ")
+        h.sub.setTextColor(if (st == State.LIVE) 0xFFFF9A3C.toInt() else Glass.TEXT2)
     }
 
     /** Gọi mỗi giây: đếm phút:giây cho các trận đang phát. */

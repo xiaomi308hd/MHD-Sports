@@ -24,6 +24,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,6 +46,9 @@ class MainActivity : AppCompatActivity() {
     private var all: List<Channel> = emptyList()
     private var lastSig = ""
     private var secs = 0
+    private var loadingData = false
+    private var lastDataRefreshAt = 0L
+    private var loadedStationNames: List<String> = emptyList()
     private var pending: Updater.Release? = null
     private var downloading = false
     private val adapters = mutableListOf<ChannelAdapter>()
@@ -59,7 +63,8 @@ class MainActivity : AppCompatActivity() {
             tvDate.text = dateFmt.format(now)
             tvTime.text = timeFmt.format(now)
             render()
-            if (++secs % 1800 == 0) checkUpdate()
+            if (++secs % 300 == 0) refreshDataIfDue()
+            if (secs % 1800 == 0) checkUpdate()
             ui.postDelayed(this, 1000 - now.time % 1000)
         }
     }
@@ -144,7 +149,11 @@ class MainActivity : AppCompatActivity() {
         checkUpdate()
     }
 
-    override fun onResume() { super.onResume(); ui.post(tick) }
+    override fun onResume() {
+        super.onResume()
+        ui.post(tick)
+        refreshDataIfDue()
+    }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
     private fun styleFilter() {
@@ -168,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         AlertDialog.Builder(this)
-            .setTitle("Link m3u8 / JSON")
+            .setTitle("Link index.json / JSON / M3U")
             .setView(et)
             .setPositiveButton("Lưu") { _, _ ->
                 prefs.edit().putString("url", et.text.toString().trim()).apply()
@@ -178,20 +187,45 @@ class MainActivity : AppCompatActivity() {
             .showGlass()
     }
 
-    private fun load() {
-        val url = prefs.getString("url", null)?.takeIf { it.isNotBlank() } ?: Config.DEFAULT_SOURCE_URL
+    private fun refreshDataIfDue() {
+        val interval = Config.DATA_REFRESH_MIN * 60_000L
+        if (!loadingData && (lastDataRefreshAt == 0L || System.currentTimeMillis() - lastDataRefreshAt >= interval)) {
+            load(silent = true)
+        }
+    }
+
+    private fun load(silent: Boolean = false) {
+        if (loadingData) return
+        val savedUrl = prefs.getString("url", null)?.takeIf { it.isNotBlank() }
+        // Chuyển link sport.json cũ của Api-JK sang index.json để kích hoạt danh mục nhiều nhà đài.
+        val isOldApiJkSportLink = savedUrl != null && savedUrl.contains("Api-JK", true) &&
+            savedUrl.substringBefore("?").endsWith("/sport.json", true)
+        val url = if (savedUrl == null || isOldApiJkSportLink) {
+            prefs.edit().putString("url", Config.DEFAULT_SOURCE_URL).apply()
+            Config.DEFAULT_SOURCE_URL
+        } else savedUrl
         if (url.isBlank()) {
             tvStatus.text = "Chưa có link. Bấm “Nhập link” để bắt đầu."
-            askLink(); return
+            if (!silent) askLink()
+            return
         }
-        tvStatus.text = "Đang tải danh sách…"
+        loadingData = true
+        if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
         lifecycleScope.launch {
             try {
-                all = SourceLoader.load(url)
+                val result = SourceLoader.loadCatalog(url)
+                if (result.channels.isEmpty()) error("Nguồn không có trận đấu hoặc kênh phát hợp lệ")
+                all = result.channels
+                loadedStationNames = result.stationNames
+                lastDataRefreshAt = System.currentTimeMillis()
                 lastSig = ""
                 render(true)
+                tvStatus.text = "Đã cập nhật ${all.size} trận/kênh · ${result.stationCount} nhà đài · Tự làm mới mỗi ${Config.DATA_REFRESH_MIN} phút"
             } catch (e: Exception) {
-                tvStatus.text = "Lỗi tải link: ${e.message}"
+                if (all.isEmpty()) tvStatus.text = "Lỗi tải dữ liệu: ${e.message}"
+                else tvStatus.text = "Không cập nhật được · Đang dùng dữ liệu đã tải trước đó (${e.message})"
+            } finally {
+                loadingData = false
             }
         }
     }
@@ -218,7 +252,7 @@ class MainActivity : AppCompatActivity() {
         val items = all.map { it to it.state(now) }
             .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
         val sig = filter.toString() + hid.sorted().joinToString(",") + "#" +
-            items.joinToString("|") { it.first.url + it.second }
+            items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) {
             adapters.forEach { it.tickTimers() }   // chỉ đếm giờ, không dựng lại
             return
@@ -228,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews(); adapters.clear()
         tvStatus.text = when {
             items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
-            else -> "Đang hiển thị ${items.size}/${all.size} kênh" +
+            else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} nhà đài" +
                 if (hid.isNotEmpty()) " · ${hid.size} nhóm đang ẩn" else ""
         }
         val rank = mapOf(State.LIVE to 0, State.ALWAYS to 1, State.UPCOMING to 2, State.ENDED to 3)
@@ -244,9 +278,15 @@ class MainActivity : AppCompatActivity() {
                     intArrayOf(Glass.AMBER, Glass.ORANGE)
                 ).also { it.cornerRadius = dp(2).toFloat() }
             }, LinearLayout.LayoutParams(dp(4), dp(20)))
+            val stationLogo = list.firstOrNull { !it.first.groupLogo.isNullOrBlank() }?.first?.groupLogo
+            if (stationLogo != null) {
+                val logoView = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                logoView.load(stationLogo)
+                head.addView(logoView, LinearLayout.LayoutParams(dp(28), dp(28)).also { it.leftMargin = dp(9) })
+            }
             head.addView(TextView(this).apply {
                 text = g; setTextColor(Color.WHITE); textSize = 18f
-                setTypeface(typeface, Typeface.BOLD); setPadding(dp(10), 0, 0, 0)
+                setTypeface(typeface, Typeface.BOLD); setPadding(dp(if (stationLogo == null) 10 else 8), 0, 0, 0)
             })
             content.addView(head)
 
@@ -369,8 +409,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPlayer(ch: Channel) {
+        val options = ch.streams
+        if (options.isEmpty() && ch.url.isBlank()) {
+            android.widget.Toast.makeText(this, "Trận đấu chưa có luồng phát.", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (options.size > 1) {
+            val labels = options.map { it.label }.toTypedArray()
+            AlertDialog.Builder(this)
+                .setTitle("${ch.name}\nChọn bình luận viên / chất lượng")
+                .setItems(labels) { _, which -> playStream(ch, options[which].url, options[which].headers) }
+                .setNegativeButton("Đóng", null)
+                .showGlass()
+        } else if (options.size == 1) {
+            playStream(ch, options[0].url, options[0].headers)
+        } else {
+            playStream(ch, ch.url, ch.headers)
+        }
+    }
+
+    private fun playStream(ch: Channel, url: String, headers: Map<String, String>) {
         startActivity(Intent(this, PlayerActivity::class.java)
-            .putExtra("url", ch.url).putExtra("name", ch.name)
-            .putExtra("headers", HashMap(ch.headers)))
+            .putExtra("url", url).putExtra("name", ch.name)
+            .putExtra("headers", HashMap(headers)))
     }
 }
