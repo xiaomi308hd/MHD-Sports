@@ -42,3 +42,6 @@ APK ký bằng `app/sportsplayer.jks` (khoá cố định để cập nhật đ�
 Khi máy chủ trả mã lỗi (ví dụ 403), trình phát tự thử lần lượt: User-Agent trình duyệt → thêm Referer/Origin theo máy chủ phát → theo nguồn danh sách → giả lập VLC → giả lập ffmpeg, và báo rõ mã lỗi.
 Nếu nguồn cần header riêng, khai báo trong JSON: `"referer"`, `"origin"`, `"user_agent"`, `"cookie"` hoặc `"headers": {...}`;
 trong M3U dùng `#EXTVLCOPT:http-referrer=...` / `http-user-agent=...`; hoặc nối vào link: `https://...m3u8|User-Agent=abc&Referer=https://site`.
+
+## Màn hình phát
+Thanh thông tin kính ở phía trên (hiện cùng bộ nút điều khiển, bấm OK/chạm màn hình để hiện): tên trận bên trái; bên phải là độ phân giải thực tế đang giải mã, số khung hình/giây thực tế được vẽ, và tốc độ tải (trung bình 5 giây).
