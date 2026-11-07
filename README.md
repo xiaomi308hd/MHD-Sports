@@ -9,6 +9,9 @@ Tên gói: `com.mhd.sports`
 - Gắn sẵn link: sửa `DEFAULT_SOURCE_URL` trong `app/src/main/java/com/mhd/sports/Models.kt`
 - Luồng bổ sung có sẵn (iptv-org: thể thao quốc tế, truyền hình Việt Nam): khai báo ở `Config.BUILTIN_STATIONS` (Models.kt) và `github-data/index.json`
 - Trang chủ có logo + tên ứng dụng (`res/drawable-nodpi/app_logo.png`, `Config.APP_NAME`)
+- **Gộp FLV + HLS**: cùng bình luận viên và cùng chất lượng chỉ còn 1 mục. HLS phát trước; nếu lỗi, tự chuyển sang FLV (và ngược lại)
+- **Lọc bộ môn**: hàng nút Tất cả / Bóng đá / Bóng rổ / Bóng chuyền / Tennis / Cầu lông dưới thanh trên cùng, được nhớ cho lần sau. Môn được nhận từ trường `sport` của nguồn (nếu có) hoặc từ tên giải/trận/kênh; trận của API Chuối Chiên không rõ môn thì tính là bóng đá. Kênh không nhận ra môn chỉ hiện ở "Tất cả" (xem `Sports.kt`)
+- **Luồng HTTP không bị chặn**: cho phép HTTP không mã hoá (`network_security_config.xml`), tự đi theo chuyển hướng http↔https, nhận link dạng `https://...m3u8|User-Agent=abc&Referer=https://site`, và khi lỗi tự thử lần lượt: đổi header → đổi http↔https → bỏ kiểm tra chứng chỉ TLS (chỉ cho video) → ép đọc HLS → ép đọc FLV. Đang xem mà rớt mạng thì tự kết nối lại tối đa 3 lần
 - Giao diện liquid glass tông đen cam, nền sân vận động lấy từ ảnh thumbnail đã bỏ chữ (`res/drawable-nodpi/bg_stadium.jpg`)
 - Trận đang phát hiện đồng hồ đếm phút:giây tính từ giờ bắt đầu
 - Nút **Sắp xếp**: ghim, Lên/Xuống, **Ẩn/Hiện** từng nhóm
