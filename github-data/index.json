@@ -8,6 +8,20 @@
       "logo": "",
       "url": "https://raw.githubusercontent.com/guiterhd-bit/Api-JK/main/sport.json",
       "enabled": true
+    },
+    {
+      "id": "iptv-the-thao",
+      "name": "THỂ THAO QUỐC TẾ",
+      "logo": "",
+      "url": "https://iptv-org.github.io/iptv/categories/sports.m3u",
+      "enabled": true
+    },
+    {
+      "id": "iptv-viet-nam",
+      "name": "TRUYỀN HÌNH VIỆT NAM",
+      "logo": "",
+      "url": "https://iptv-org.github.io/iptv/countries/vn.m3u",
+      "enabled": true
     }
   ]
 }
