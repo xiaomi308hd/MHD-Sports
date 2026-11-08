@@ -39,7 +39,14 @@ object SourceLoader {
 
     suspend fun load(url: String): List<Channel> = loadCatalog(url).channels
 
-    suspend fun loadCatalog(url: String): Result = withContext(Dispatchers.IO) {
+    suspend fun loadCatalog(rawUrl: String): Result = withContext(Dispatchers.IO) {
+        val decoded = LinkStore.decode(rawUrl)
+        val url = decoded.url.ifBlank { rawUrl }
+        // Link trỏ thẳng vào một luồng (flv/mp4/ts) => tạo luôn một kênh để phát
+        if (LinkStore.isDirectStream(url)) {
+            val ch = Channel("Link của bạn", null, url, "Link của bạn", null, null, headers = decoded.headers)
+            return@withContext Result(listOf(ch), 1, listOf("Link của bạn"))
+        }
         val root = fetch(url)
         val parsed = runCatching { JSONTokener(root.text).nextValue() }.getOrNull()
         if (parsed is JSONObject && parsed.optJSONArray("stations") != null) {

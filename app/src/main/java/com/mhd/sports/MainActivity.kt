@@ -268,6 +268,7 @@ class MainActivity : AppCompatActivity() {
             t.background = if (on) Glass.accentButton(this, 16f) else Glass.button(this, 16f)
             render(true)
         }
+        row("Nhập link / link đã lưu") { dialog.dismiss(); askLink() }
         row("Sắp xếp, ẩn/hiện nhóm") { dialog.dismiss(); askOrder() }
                 val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
         row("Kiểm tra bản cập nhật  ·  đang dùng $ver") { dialog.dismiss(); checkUpdate(manual = true) }
@@ -286,26 +287,56 @@ class MainActivity : AppCompatActivity() {
     // ---------- link ----------
     private fun askLink() {
         // Link có sẵn của ứng dụng không hiện trong ô nhập; chỉ hiện link do chính người dùng đã lưu.
-        val saved = prefs.getString("url", null)?.trim().orEmpty()
+        val saved = LinkStore.active(this).orEmpty()
         val et = EditText(this).apply {
             hint = Config.LINK_HINT
-            setText(if (saved.isEmpty() || saved == Config.DEFAULT_SOURCE_URL) "" else saved)
+            setText(saved)
             setSingleLine()
             setTextColor(Color.WHITE); setHintTextColor(0x80FFFFFF.toInt())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         AlertDialog.Builder(this)
             .setTitle("Nhập link của bạn")
-            .setMessage("Để trống để dùng nguồn có sẵn của ứng dụng.")
+            .setMessage("Hỗ trợ link thường, link mã hoá (b64:…, %3A%2F…) và hậu tố |Referer=…\nĐể trống để dùng nguồn có sẵn của ứng dụng.")
             .setView(et)
-            .setPositiveButton("Lưu") { _, _ ->
+            .setPositiveButton("Lưu & dùng") { _, _ ->
                 val value = et.text.toString().trim()
-                if (value.isEmpty()) prefs.edit().remove("url").apply()
-                else prefs.edit().putString("url", value).apply()
+                if (value.isEmpty()) {
+                    LinkStore.use(this, null)
+                } else if (!LinkStore.saveAndUse(this, value)) {
+                    tvStatus.text = "Link không hợp lệ (cần bắt đầu bằng http hoặc https)"
+                    return@setPositiveButton
+                }
                 lastSig = ""
                 load()
             }
+            .setNeutralButton("Đã lưu") { _, _ -> showSavedLinks() }
             .setNegativeButton("Huỷ", null)
+            .showGlass()
+    }
+
+    private fun showSavedLinks() {
+        val items = LinkStore.list(this)
+        if (items.isEmpty()) {
+            tvStatus.text = "Chưa có link nào được lưu"
+            return
+        }
+        val active = LinkStore.active(this)
+        val labels = items.map { (if (it.url == active) "● " else "") + it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Link đã lưu")
+            .setItems(labels) { _, i ->
+                val item = items[i]
+                AlertDialog.Builder(this)
+                    .setTitle(item.name)
+                    .setItems(arrayOf("Dùng link này", "Xoá link")) { _, which ->
+                        if (which == 0) { LinkStore.use(this, item.url); lastSig = ""; load() }
+                        else { LinkStore.remove(this, item.url); lastSig = ""; load() }
+                    }
+                    .setNegativeButton("Đóng", null)
+                    .showGlass()
+            }
+            .setNegativeButton("Đóng", null)
             .showGlass()
     }
 
@@ -318,9 +349,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun load(silent: Boolean = false) {
         if (loadingData) return
-        // Xóa link tùy chỉnh cũ để luôn sử dụng playlist M3U cố định của người dùng.
-        prefs.edit().remove("url").apply()
-        val url = Config.DEFAULT_SOURCE_URL
+        // Ưu tiên link người dùng đã lưu; không có thì dùng nguồn mặc định của ứng dụng.
+        val url = LinkStore.active(this) ?: Config.DEFAULT_SOURCE_URL
         loadingData = true
         if (!silent) spinReload(true)
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
