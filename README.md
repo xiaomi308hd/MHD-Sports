@@ -66,3 +66,8 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 - **Thanh trên cùng mới**: logo + tên ứng dụng bên trái, đồng hồ/ngày bên phải, kế bên là hai nút biểu tượng **Làm mới** và **Cài đặt**. Hàng bộ môn được căn giữa.
 - **Cài đặt** gom: Lọc theo giờ, Sắp xếp/ẩn-hiện nhóm, Nhập link nguồn, Kiểm tra bản cập nhật.
 - **Tự cập nhật**: dữ liệu tải lại mỗi `Config.DATA_REFRESH_MIN` phút (2 phút) và khi mở lại app; bản APK mới được kiểm tra khi mở app, khi quay lại app và mỗi 10 phút, hiện hộp thoại một lần cho mỗi bản mới. `Config.GITHUB_REPO` phải trỏ đúng repo chứa Releases (hiện đặt `guiterhd-bit/MHD-Sports`; sửa lại nếu repo của bạn tên khác).
+
+### Gộp luồng nâng cao & nhận diện bộ môn
+- Nhãn trong ngoặc được bỏ khi so tên: `[hls]`, `[flv]`, `[hls2]`, chất lượng `HD`/`FHD`/`SD`/`4K`/`1080p`, và `geo`. Ví dụ `(KOBE)` và `(HD KOBE)` gộp thành một thẻ; trong trình phát có các nút `HLS`, `HD HLS`, `GEO HLS`, `FLV`...
+- Với API Chuối Chiên, luồng có chữ `geo` (ở nhãn, loại hoặc tên khoá `blvs_*`) được đưa vào danh sách luồng của cùng bình luận viên, xếp cuối.
+- Bóng rổ: nhận từ tên giải (NBA, WNBA, CBA, KBL, Euroleague...) hoặc tên đội NBA/WNBA (xem `BASKETBALL_RE` trong `Sports.kt`). Muốn thêm đội/giải, sửa danh sách đó.

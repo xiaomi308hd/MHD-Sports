@@ -139,10 +139,19 @@ object SourceLoader {
     }
 
     // ---------- gộp trận trùng tên ----------
-    // Tên có thể kèm nhãn luồng như "[hls]", "[flv]", "[hls2]", "(FLV)"... => bỏ nhãn rồi so tên.
-    private val FORMAT_TAG = Regex("""(?i)\s*[\[(]\s*((?:http[-_ ]?)?flv\s*\d*|hls\s*\d*|m3u8\s*\d*)\s*[\])]""")
+    // Nhãn nằm trong ngoặc: định dạng [hls] [flv] [hls2], chất lượng (HD KOBE) [FHD], và luồng [geo].
+    // Bỏ các nhãn đó khi so tên => "(KOBE)" và "(HD KOBE)" là cùng một trận / cùng một BLV.
+    private val BRACKET = Regex("""[\[(]([^\])\[(]*)[\])]""")
+    private val MOD_TOKEN = Regex(
+        """(?i)(?<![\p{L}\p{N}])(http[-_ ]?flv|flv\s*\d*|hls\s*\d*|m3u8\s*\d*|geo|fhd|full[ -]?hd|hd|sd|4k|1080p?|720p?|480p?)(?![\p{L}\p{N}])"""
+    )
     private val DIACRITICS = Regex("""\p{M}+""")
+    private val SPACES = Regex("""\s+""")
     private const val SAME_START_MS = 5 * 60_000L
+
+    private class Tags(val format: String, val mods: List<String>)
+    private class Member(val tags: Tags, val ch: Channel)
+    private class Variant(val label: String, val url: String, val headers: Map<String, String>, val modRank: Int, val fmtRank: Int)
 
     private fun foldName(t: String): String =
         java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(DIACRITICS, "")
@@ -176,6 +185,37 @@ object SourceLoader {
         else -> 1
     }
 
+    /** Không nhãn -> 0, HD/FHD/4K -> 1, nhãn khác -> 2, GEO -> 3. */
+    private fun modRank(mods: List<String>): Int = when {
+        mods.isEmpty() -> 0
+        "GEO" in mods -> 3
+        mods.all { it in setOf("HD", "FHD", "4K", "1080P", "1080", "720P", "720") } -> 1
+        else -> 2
+    }
+
+    /** Tách nhãn trong ngoặc ra khỏi tên. Trả về (tên đã sạch, nhãn). */
+    private fun splitTags(raw: String): Pair<String, Tags> {
+        var format = ""
+        val mods = mutableListOf<String>()
+        val replaced = BRACKET.replace(raw) { m ->
+            val inner = m.groupValues[1]
+            val tokens = MOD_TOKEN.findAll(inner).map { it.value }.toList()
+            if (tokens.isEmpty()) return@replace m.value
+            tokens.forEach { t ->
+                val l = t.lowercase().replace(Regex("""[\s_-]"""), "")
+                when {
+                    "flv" in l || "hls" in l || "m3u8" in l -> if (format.isEmpty()) format = tagLabel(t)
+                    l == "geo" -> mods += "GEO"
+                    l.startsWith("full") || l == "fhd" -> mods += "FHD"
+                    else -> mods += l.uppercase()
+                }
+            }
+            val rest = inner.replace(MOD_TOKEN, " ").replace(SPACES, " ").trim()
+            if (rest.isEmpty()) " " else "${m.value.first()}$rest${m.value.last()}"
+        }
+        return cleanName(replaced.replace(SPACES, " ")) to Tags(format, mods.distinct())
+    }
+
     /** Trùng nhãn thì đánh số: HLS, HLS -> HLS, HLS2; nhãn rỗng -> "Luồng N". */
     private fun numberLabels(raw: List<String>): List<String> {
         val used = mutableSetOf<String>()
@@ -193,30 +233,27 @@ object SourceLoader {
         }
     }
 
-    private class Member(val tag: String, val ch: Channel)
-
     /**
-     * Các mục cùng tên (sau khi bỏ nhãn [hls]/[flv]/[hls2]) trong cùng nhà đài, cùng giờ => gộp thành 1 thẻ.
-     * Các luồng cũ thành danh sách lựa chọn; người xem đổi HLS / HLS2 / FLV ngay trong trình phát.
+     * Các mục cùng tên (sau khi bỏ nhãn hls/flv/HD/geo) trong cùng nhà đài, cùng giờ => gộp thành 1 thẻ.
+     * Mỗi mục cũ thành một luồng trong danh sách (HLS, HLS2, FLV, HD HLS, GEO...); người xem đổi ngay trong trình phát.
      */
     private fun mergeDuplicates(list: List<Channel>): List<Channel> {
-        class Bucket(val key: String, val members: MutableList<Member>)
+        class Bucket(val members: MutableList<Member>)
         val buckets = mutableListOf<Bucket>()
         val byKey = HashMap<String, MutableList<Bucket>>()
         for (ch in list) {
-            val tag = FORMAT_TAG.find(ch.name)?.groupValues?.get(1)
-            val base = cleanName(ch.name.replace(FORMAT_TAG, " "))
+            val (base, tags) = splitTags(ch.name)
             val key = ch.group.lowercase() + "|" + foldName(base)
             val candidates = byKey.getOrPut(key) { mutableListOf() }
             val target = candidates.firstOrNull { b ->
                 val s0 = b.members.first().ch.start
                 s0 == null || ch.start == null || kotlin.math.abs(s0 - ch.start) <= SAME_START_MS
-            } ?: Bucket(key, mutableListOf()).also { candidates += it; buckets += it }
-            target.members += Member(tagLabel(tag), ch.copy(name = base))
+            } ?: Bucket(mutableListOf()).also { candidates += it; buckets += it }
+            target.members += Member(tags, ch.copy(name = base))
         }
         return buckets.map { b ->
             val first = b.members.first().ch
-            val tagged = b.members.any { it.tag.isNotEmpty() }
+            val tagged = b.members.any { it.tags.format.isNotEmpty() || it.tags.mods.isNotEmpty() }
             if (b.members.size == 1 && !tagged) return@map first
 
             val ownStreams = b.members.flatMap { it.ch.streams }
@@ -224,18 +261,19 @@ object SourceLoader {
                 ownStreams.distinctBy { it.label + "#" + it.url }
             } else {
                 val raw = b.members.map { m ->
-                    Triple(m.tag.ifEmpty { labelFromUrl(m.ch.url) }, m.ch.url, m.ch.headers)
-                }.filter { it.second.isNotBlank() }.distinctBy { it.second }
-                val sorted = raw.sortedWith(compareBy({ labelRank(it.first) }, { it.first }))
-                val labels = numberLabels(sorted.map { it.first })
-                val variants = sorted.mapIndexed { i, t -> Triple(labels[i], t.second, t.third) }
-                if (variants.isEmpty()) emptyList()
+                    val fmt = m.tags.format.ifEmpty { labelFromUrl(m.ch.url) }
+                    Variant((m.tags.mods + fmt).filter { it.isNotBlank() }.joinToString(" "),
+                        m.ch.url, m.ch.headers, modRank(m.tags.mods), labelRank(fmt))
+                }.filter { it.url.isNotBlank() }.distinctBy { it.url }
+                val sorted = raw.sortedWith(compareBy({ it.modRank }, { it.fmtRank }, { it.label }))
+                val labels = numberLabels(sorted.map { it.label })
+                if (sorted.isEmpty()) emptyList()
                 else listOf(StreamOption(
                     label = "Phát trực tiếp",
-                    url = variants[0].second,
-                    headers = variants[0].third,
-                    fallbacks = variants.drop(1).map { StreamSource(it.second, it.third, it.first) },
-                    format = variants[0].first
+                    url = sorted[0].url,
+                    headers = sorted[0].headers,
+                    fallbacks = sorted.drop(1).mapIndexed { i, v -> StreamSource(v.url, v.headers, labels[i + 1]) },
+                    format = labels[0]
                 ))
             }
             first.copy(
@@ -298,7 +336,7 @@ object SourceLoader {
                         if (!streamUrl.startsWith("http") || !seen.add(streamUrl)) continue
                         val label = stream.optString("label")
                         val hint = listOf(key, label, stream.str("type", "format", "protocol", "kind").orEmpty()).joinToString(" ")
-                        raws += RawStream(commentatorName, label.ifBlank { "Phát ${k + 1}" }, streamUrl, jsonHeaders(stream), formatOf(streamUrl, hint))
+                        raws += RawStream(commentatorName, label.ifBlank { "Phát ${k + 1}" }, streamUrl, jsonHeaders(stream), formatOf(streamUrl, hint), GEO_WORD.containsMatchIn(hint))
                     }
                 }
             }
@@ -353,7 +391,11 @@ object SourceLoader {
 
     // ---------- gộp luồng FLV / HLS ----------
     private enum class Fmt { HLS, OTHER, FLV }
-    private class RawStream(val commentator: String, val quality: String, val url: String, val headers: Map<String, String>, val fmt: Fmt)
+    private class RawStream(
+        val commentator: String, val quality: String, val url: String,
+        val headers: Map<String, String>, val fmt: Fmt, val geo: Boolean = false
+    )
+    private val GEO_WORD = Regex("""(?i)(?<![\p{L}\p{N}])geo(?![\p{L}\p{N}])""")
 
     private val FORMAT_WORDS = Regex("""(?i)\b(http[-_ ]?flv|flv|hls|m3u8)\b""")
     private val SEPARATORS = Regex("""[\s\-_/|()\[\]·:]+""")
@@ -374,18 +416,19 @@ object SourceLoader {
 
     /** Cùng bình luận viên + cùng chất lượng (bỏ chữ FLV/HLS) => 1 mục; HLS phát trước, FLV làm dự phòng. */
     private fun mergeStreams(raws: List<RawStream>): List<StreamOption> {
+        fun cleanQuality(q: String) =
+            q.replace(FORMAT_WORDS, " ").replace(GEO_WORD, " ").replace(SEPARATORS, " ").trim()
         val groups = linkedMapOf<String, MutableList<RawStream>>()
         raws.forEach { r ->
-            val quality = r.quality.replace(FORMAT_WORDS, " ").replace(SEPARATORS, " ").trim()
-            groups.getOrPut(r.commentator.trim().lowercase() + "#" + quality.lowercase()) { mutableListOf() } += r
+            groups.getOrPut(r.commentator.trim().lowercase() + "#" + cleanQuality(r.quality).lowercase()) { mutableListOf() } += r
         }
         return groups.values.map { list ->
-            val sorted = list.sortedBy { it.fmt.ordinal }
+            // HLS thường phát trước, FLV sau, luồng GEO để cuối danh sách
+            val sorted = list.sortedWith(compareBy({ it.geo }, { it.fmt.ordinal }))
             val first = sorted.first()
-            val quality = first.quality.replace(FORMAT_WORDS, " ").replace(SEPARATORS, " ").trim()
-            val label = listOf(first.commentator, quality).filter { it.isNotBlank() }.joinToString(" · ")
+            val label = listOf(first.commentator, cleanQuality(first.quality)).filter { it.isNotBlank() }.joinToString(" · ")
                 .ifBlank { "Phát trực tiếp" }
-            val labels = numberLabels(sorted.map { fmtName(it.fmt) })
+            val labels = numberLabels(sorted.map { listOf(if (it.geo) "GEO" else "", fmtName(it.fmt)).filter { p -> p.isNotEmpty() }.joinToString(" ") })
             StreamOption(
                 label, first.url, first.headers,
                 sorted.drop(1).mapIndexed { i, r -> StreamSource(r.url, r.headers, labels[i + 1]) },
@@ -497,7 +540,8 @@ object SourceLoader {
     }
 
     // ---------- tên trận / giờ ----------
-    private val EMOJI = Regex("""[\p{So}\p{Cs}\uFE0F\u200D]""")
+    // Gồm cả ký tự chưa được Android đời cũ biết (hiện thành ô vuông): vùng emoji, ký tự chưa gán, định dạng, dùng riêng
+    private val EMOJI = Regex("""[\p{So}\p{Sk}\p{Cs}\p{Cn}\p{Co}\p{Cf}\uFE0F\u200D\u20E3\uFFFC\uFFFD\x{1F000}-\x{1FAFF}]""")
     private val MULTI_SPACE = Regex("""\s{2,}""")
     private val NAME_TIME = Regex("""(?<!\d)(\d{1,2}):(\d{2})(?!\d)""")
     private val NAME_DATE = Regex("""(?<!\d)(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?(?!\d)""")
