@@ -2,7 +2,7 @@ package com.sportsplayer.app
 
 object Config {
     /** Gắn link trực tiếp tại đây (m3u8 / m3u / JSON, link rút gọn cũng được). Để trống nếu muốn người dùng tự nhập. */
-    const val DEFAULT_SOURCE_URL = ""
+    const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/xiaomi308hd/sport-api/refs/heads/main/thethao.m3u?token=GHSAT0AAAAAAEPHSB7DEM6ZNHXY6XITSY6O2XQPOKQ"
 
     /** Dòng chờ hiển thị trong ô nhập link. */
     const val LINK_HINT = "nhập link của bạn để tôi có thể nhận biết"

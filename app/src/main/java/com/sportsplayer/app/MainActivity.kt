@@ -93,29 +93,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() { super.onResume(); ui.post(tick); render() }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
-    private fun askLink() {
-        val et = EditText(this).apply {
-            hint = Config.LINK_HINT
-            setText(prefs.getString("url", Config.DEFAULT_SOURCE_URL))
-            setSingleLine()
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Link m3u8 / JSON")
-            .setView(et)
-            .setPositiveButton("Lưu") { _, _ ->
-                prefs.edit().putString("url", et.text.toString().trim()).apply()
-                load()
-            }
-            .setNegativeButton("Huỷ", null)
-            .show()
-    }
-
     private fun load() {
         val url = prefs.getString("url", null)?.takeIf { it.isNotBlank() } ?: Config.DEFAULT_SOURCE_URL
         if (url.isBlank()) {
-            tvStatus.text = "Chưa có link. Bấm “Nhập link” để bắt đầu."
-            askLink(); return
+            tvStatus.text = "Chưa có link nguồn."
+            return
         }
         tvStatus.text = "Đang tải danh sách…"
         lifecycleScope.launch {
