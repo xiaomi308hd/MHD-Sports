@@ -414,25 +414,46 @@ object SourceLoader {
         }
     }
 
-    /** Cùng bình luận viên + cùng chất lượng (bỏ chữ FLV/HLS) => 1 mục; HLS phát trước, FLV làm dự phòng. */
+    /**
+     * Gộp tất cả chất lượng của cùng bình luận viên thành một lựa chọn.
+     * Ví dụ HD1.m3u8, HD2.m3u8 và FHD.m3u8 sẽ thành một mục; từng chất lượng
+     * xuất hiện thành nút đổi luồng trong PlayerActivity. HLS được ưu tiên trước FLV.
+     */
     private fun mergeStreams(raws: List<RawStream>): List<StreamOption> {
         fun cleanQuality(q: String) =
             q.replace(FORMAT_WORDS, " ").replace(GEO_WORD, " ").replace(SEPARATORS, " ").trim()
+
+        // Không đưa chất lượng vào khóa nhóm: HD1/HD2/FHD là các biến thể của cùng một mục.
         val groups = linkedMapOf<String, MutableList<RawStream>>()
         raws.forEach { r ->
-            groups.getOrPut(r.commentator.trim().lowercase() + "#" + cleanQuality(r.quality).lowercase()) { mutableListOf() } += r
+            val commentatorKey = r.commentator.trim().lowercase().ifBlank { "default" }
+            groups.getOrPut(commentatorKey) { mutableListOf() } += r
         }
+
         return groups.values.map { list ->
-            // HLS thường phát trước, FLV sau, luồng GEO để cuối danh sách
-            val sorted = list.sortedWith(compareBy({ it.geo }, { it.fmt.ordinal }))
+            // HLS thường phát trước, FLV sau; GEO được xếp cuối.
+            val sorted = list.distinctBy { it.url }.sortedWith(compareBy({ it.geo }, { it.fmt.ordinal }))
             val first = sorted.first()
-            val label = listOf(first.commentator, cleanQuality(first.quality)).filter { it.isNotBlank() }.joinToString(" · ")
-                .ifBlank { "Phát trực tiếp" }
-            val labels = numberLabels(sorted.map { listOf(if (it.geo) "GEO" else "", fmtName(it.fmt)).filter { p -> p.isNotEmpty() }.joinToString(" ") })
+            val label = first.commentator.trim().ifBlank { "Phát trực tiếp" }
+
+            // Giữ nhãn chất lượng trên từng nút đổi luồng, ví dụ "HD1 HLS", "HD2 HLS", "FHD HLS".
+            val rawLabels = sorted.map { stream ->
+                listOf(
+                    cleanQuality(stream.quality),
+                    if (stream.geo) "GEO" else "",
+                    fmtName(stream.fmt)
+                ).filter { it.isNotBlank() }.joinToString(" ")
+            }
+            val labels = numberLabels(rawLabels)
+
             StreamOption(
-                label, first.url, first.headers,
-                sorted.drop(1).mapIndexed { i, r -> StreamSource(r.url, r.headers, labels[i + 1]) },
-                labels[0]
+                label = label,
+                url = first.url,
+                headers = first.headers,
+                fallbacks = sorted.drop(1).mapIndexed { i, stream ->
+                    StreamSource(stream.url, stream.headers, labels[i + 1])
+                },
+                format = labels.firstOrNull().orEmpty()
             )
         }
     }
