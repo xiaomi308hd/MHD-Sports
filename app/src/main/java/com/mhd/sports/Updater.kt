@@ -30,7 +30,8 @@ object Updater {
             .header("User-Agent", "MHDSports")
             .header("Cache-Control", "no-cache")
             .build()
-        Net.client.newCall(req).execute().use { r ->
+        Net.client.newBuilder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
+            .newCall(req).execute().use { r ->
             if (!r.isSuccessful) error("GitHub trả về mã ${r.code} (repo cần để Public và đã có bản phát hành)")
             val j = JSONObject(r.body?.string() ?: "{}")
             val tag = j.optString("tag_name")

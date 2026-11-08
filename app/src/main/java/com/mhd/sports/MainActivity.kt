@@ -489,11 +489,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- cập nhật: chỉ hiện thông báo ở góc khi có bản mới ----------
-    /** manual = true: báo kết quả (kể cả lỗi) trên dòng trạng thái; tự động: chỉ hiện khi có bản mới. */
+    /** Hộp thoại kết quả cho lần kiểm tra thủ công: luôn thấy được, không phụ thuộc dòng trạng thái nhỏ. */
+    private fun showCheckResult(message: String) {
+        tvStatus.text = message
+        AlertDialog.Builder(this)
+            .setTitle("Kiểm tra cập nhật")
+            .setMessage(message)
+            .setPositiveButton("Đóng", null)
+            .showGlass()
+    }
+
+    private fun friendlyError(e: Exception): String = when (e) {
+        is java.net.UnknownHostException, is java.net.ConnectException ->
+            "Không kết nối được tới GitHub. Kiểm tra lại mạng rồi thử lại."
+        is java.net.SocketTimeoutException, is java.io.InterruptedIOException ->
+            "GitHub phản hồi quá lâu (hết thời gian chờ). Thử lại sau."
+        else -> Config.scrub(e.message)
+    }
+
+    /** manual = true: luôn báo kết quả (kể cả lỗi) bằng hộp thoại; tự động: chỉ hiện khi có bản mới. */
     private fun checkUpdate(manual: Boolean = false) {
-        if (downloading) return
+        if (downloading) {
+            if (manual) android.widget.Toast.makeText(this, "Đang tải bản cập nhật…", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
         lastUpdateCheckAt = System.currentTimeMillis()
-        if (manual) tvStatus.text = "Đang kiểm tra bản cập nhật…"
+        if (manual) {
+            tvStatus.text = "Đang kiểm tra bản cập nhật…"
+            android.widget.Toast.makeText(this, "Đang kiểm tra bản cập nhật…", android.widget.Toast.LENGTH_SHORT).show()
+        }
         lifecycleScope.launch {
             try {
                 val r = Updater.latest()
@@ -511,11 +535,13 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     pending = null
                     pillUpdate.visibility = View.GONE
-                    if (manual) tvStatus.text = if (r == null) "Chưa tìm thấy bản phát hành nào trên GitHub"
-                        else "Bạn đang dùng bản mới nhất (build $local)"
+                    if (manual) showCheckResult(
+                        if (r == null) "Chưa có bản phát hành nào có file APK trên GitHub.\nKiểm tra repo đã chạy Actions xong và có Release chứa file .apk chưa."
+                        else "Bạn đang dùng bản mới nhất (build $local)."
+                    )
                 }
             } catch (e: Exception) {
-                if (manual) tvStatus.text = "Không kiểm tra được bản cập nhật: ${Config.scrub(e.message)}"
+                if (manual) showCheckResult("Không kiểm tra được bản cập nhật:\n${friendlyError(e)}")
             }
         }
     }
