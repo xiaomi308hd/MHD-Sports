@@ -7,8 +7,8 @@ object Config {
     const val APP_NAME = "MHD Sports"
     const val APP_TAGLINE = "Trực tiếp thể thao"
 
-    /** GitHub index.json quản lý nhiều nhà đài. Có thể đổi bằng nút Nhập link (link này không hiện trong ô nhập). */
-    const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/guiterhd-bit/Api-JK/main/index.json"
+    /** Playlist M3U mặc định của người dùng; ứng dụng tự tải lại nội dung mỗi 2 phút. */
+    const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/xiaomi308hd/sport-api/refs/heads/main/thethao.m3u?token=GHSAT0AAAAAAEPHSB7DEM6ZNHXY6XITSY6O2XQPOKQ"
 
     /** Repo GitHub Releases chứa APK. Chưa tự đặt vì repo phát hành APK cần được xác nhận riêng. */
     const val GITHUB_REPO = "guiterhd-bit/MHD-Sports"

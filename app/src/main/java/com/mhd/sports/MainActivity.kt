@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity() {
             tvTime.text = timeFmt.format(now)
             render()
             secs++
-            if (secs % 30 == 0) refreshDataIfDue()          // hạn tải lại do Config.DATA_REFRESH_MIN quyết định
+            if (secs % 30 == 0) refreshDataIfDue()          // tự kiểm tra playlist mỗi 30 giây; tải lại khi đủ 2 phút
             if (secs % 600 == 0) checkUpdate()              // 10 phút kiểm tra bản APK mới một lần
             ui.postDelayed(this, 1000 - now.time % 1000)
         }
@@ -269,8 +269,7 @@ class MainActivity : AppCompatActivity() {
             render(true)
         }
         row("Sắp xếp, ẩn/hiện nhóm") { dialog.dismiss(); askOrder() }
-        row("Nhập link nguồn") { dialog.dismiss(); askLink() }
-        val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
+                val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
         row("Kiểm tra bản cập nhật  ·  đang dùng $ver") { dialog.dismiss(); checkUpdate(manual = true) }
         dialog = AlertDialog.Builder(this)
             .setTitle("Cài đặt")
@@ -319,12 +318,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun load(silent: Boolean = false) {
         if (loadingData) return
-        val savedUrl = prefs.getString("url", null)?.trim()?.takeIf { it.isNotBlank() }
-        // Link sport.json cũ của Api-JK được chuyển sang nguồn mặc định (index.json nhiều nhà đài).
-        val isOldApiJkSportLink = savedUrl != null && savedUrl.contains("Api-JK", true) &&
-            savedUrl.substringBefore("?").endsWith("/sport.json", true)
-        if (isOldApiJkSportLink || savedUrl == Config.DEFAULT_SOURCE_URL) prefs.edit().remove("url").apply()
-        val url = if (savedUrl == null || isOldApiJkSportLink) Config.DEFAULT_SOURCE_URL else savedUrl
+        // Xóa link tùy chỉnh cũ để luôn sử dụng playlist M3U cố định của người dùng.
+        prefs.edit().remove("url").apply()
+        val url = Config.DEFAULT_SOURCE_URL
         loadingData = true
         if (!silent) spinReload(true)
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
