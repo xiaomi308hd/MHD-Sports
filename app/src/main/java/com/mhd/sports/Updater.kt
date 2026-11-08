@@ -1,3 +1,4 @@
+
 package com.mhd.sports
 
 import android.app.Activity
@@ -13,86 +14,235 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.TimeUnit
 
-/** Kiểm tra bản mới trong GitHub Releases, tải APK và mở trình cài đặt. */
+/**
+ * Kiểm tra phiên bản từ version.json trên GitHub,
+ * tải APK và mở trình cài đặt Android.
+ */
 object Updater {
-    data class Release(val code: Int, val name: String, val apkUrl: String, val notes: String)
 
-    fun localCode(ctx: Context): Long =
-        PackageInfoCompat.getLongVersionCode(ctx.packageManager.getPackageInfo(ctx.packageName, 0))
+    private const val VERSION_URL =
+        "https://raw.githubusercontent.com/xiaomi308hd/MHD-Sports/main/version.json"
 
-    suspend fun latest(): Release? = withContext(Dispatchers.IO) {
-        if (Config.GITHUB_REPO.isBlank() || Config.GITHUB_REPO.startsWith("your-name"))
-            error("Chưa cài GITHUB_REPO trong Models.kt")
-        val req = Request.Builder()
-            .url("https://api.github.com/repos/${Config.GITHUB_REPO}/releases/latest")
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "MHDSports")
-            .header("Cache-Control", "no-cache")
-            .build()
-        Net.client.newBuilder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
-            .newCall(req).execute().use { r ->
-            if (!r.isSuccessful) error("GitHub trả về mã ${r.code} (repo cần để Public và đã có bản phát hành)")
-            val j = JSONObject(r.body?.string() ?: "{}")
-            val tag = j.optString("tag_name")
-            val code = Regex("""(\d+)\s*$""").find(tag)?.groupValues?.get(1)?.toIntOrNull()
-                ?: return@use null
-            val assets = j.optJSONArray("assets") ?: return@use null
-            var url: String? = null
-            for (i in 0 until assets.length()) {
-                val a = assets.getJSONObject(i)
-                if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); break }
-            }
-            url?.let { Release(code, tag, it, j.optString("body")) }
-        }
+    data class Release(
+        val code: Int,
+        val name: String,
+        val apkUrl: String,
+        val notes: String
+    )
+
+    /** Lấy versionCode của ứng dụng đang cài. */
+    fun localCode(ctx: Context): Long {
+        return PackageInfoCompat.getLongVersionCode(
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        )
     }
 
-    suspend fun download(ctx: Context, url: String, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
-        val dir = File(ctx.getExternalFilesDir(null) ?: ctx.cacheDir, "updates").apply { mkdirs() }
-        val f = File(dir, "update.apk")
-        if (f.exists()) f.delete()
-        Net.client.newCall(Net.req(url)).execute().use { r ->
-            if (!r.isSuccessful) error("Tải lỗi, mã ${r.code}")
-            val body = r.body ?: error("Không có dữ liệu")
-            val total = body.contentLength()
-            body.byteStream().use { input ->
-                f.outputStream().use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    var done = 0L
-                    var last = -1
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        done += n
-                        if (total > 0) {
-                            val p = (done * 100 / total).toInt()
-                            if (p != last) { last = p; withContext(Dispatchers.Main) { onProgress(p) } }
+    /**
+     * Đọc version.json từ GitHub.
+     * Không cần GitHub Releases.
+     */
+    suspend fun latest(): Release? = withContext(Dispatchers.IO) {
+
+        val request = Request.Builder()
+            .url("$VERSION_URL?t=${System.currentTimeMillis()}")
+            .header("User-Agent", Net.UA)
+            .header("Accept", "application/json")
+            .header("Cache-Control", "no-cache, no-store")
+            .header("Pragma", "no-cache")
+            .build()
+
+        Net.client.newBuilder()
+            .callTimeout(20, TimeUnit.SECONDS)
+            .build()
+            .newCall(request)
+            .execute()
+            .use { response ->
+
+                if (!response.isSuccessful) {
+                    error("Không đọc được version.json: HTTP ${response.code}")
+                }
+
+                val content = response.body?.string()
+                    ?: error("GitHub không trả về dữ liệu version.json")
+
+                val json = JSONObject(content)
+
+                val code = json.optInt("versionCode", 0)
+                val name = json.optString("versionName", "").trim()
+                val apkUrl = json.optString("apkUrl", "").trim()
+                val notes = json.optString("notes", "").trim()
+
+                if (code <= 0) {
+                    error("versionCode không hợp lệ trong version.json")
+                }
+
+                if (name.isBlank()) {
+                    error("Thiếu versionName trong version.json")
+                }
+
+                if (!apkUrl.startsWith("https://")) {
+                    error("apkUrl không hợp lệ hoặc chưa được cấu hình")
+                }
+
+                Release(
+                    code = code,
+                    name = name,
+                    apkUrl = apkUrl,
+                    notes = notes
+                )
+            }
+    }
+
+    /**
+     * Tải APK và báo tiến trình 0-100%.
+     */
+    suspend fun download(
+        ctx: Context,
+        url: String,
+        onProgress: (Int) -> Unit
+    ): File = withContext(Dispatchers.IO) {
+
+        require(url.startsWith("https://")) {
+            "Đường dẫn APK không hợp lệ"
+        }
+
+        val dir = File(
+            ctx.getExternalFilesDir(null) ?: ctx.cacheDir,
+            "updates"
+        ).apply {
+            if (!exists() && !mkdirs()) {
+                error("Không tạo được thư mục tải APK")
+            }
+        }
+
+        val file = File(dir, "update.apk")
+        val tempFile = File(dir, "update.apk.tmp")
+
+        if (tempFile.exists()) tempFile.delete()
+
+        try {
+            Net.client.newCall(Net.req(url)).execute().use { response ->
+
+                if (!response.isSuccessful) {
+                    error("Tải APK thất bại: HTTP ${response.code}")
+                }
+
+                val body = response.body
+                    ?: error("Máy chủ không trả về file APK")
+
+                val total = body.contentLength()
+
+                body.byteStream().use { input ->
+                    tempFile.outputStream().buffered().use { output ->
+
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        var lastProgress = -1
+
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count == -1) break
+
+                            output.write(buffer, 0, count)
+                            downloaded += count
+
+                            if (total > 0) {
+                                val progress =
+                                    (downloaded * 100 / total)
+                                        .toInt()
+                                        .coerceIn(0, 100)
+
+                                if (progress != lastProgress) {
+                                    lastProgress = progress
+
+                                    withContext(Dispatchers.Main) {
+                                        onProgress(progress)
+                                    }
+                                }
+                            }
                         }
+
+                        output.flush()
                     }
                 }
+
+                if (tempFile.length() <= 0L) {
+                    error("File APK tải về bị rỗng")
+                }
+
+                if (total > 0 && tempFile.length() != total) {
+                    error("File APK tải về không đầy đủ")
+                }
             }
+
+            if (file.exists() && !file.delete()) {
+                error("Không thể thay thế file APK cũ")
+            }
+
+            if (!tempFile.renameTo(file)) {
+                error("Không thể hoàn tất file APK")
+            }
+
+            withContext(Dispatchers.Main) {
+                onProgress(100)
+            }
+
+            file
+
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
         }
-        f
     }
 
-    /** true nếu đã mở trình cài đặt; false nếu cần người dùng cấp quyền "cài từ nguồn không rõ" trước. */
-    fun install(act: Activity, f: File): Boolean {
-        if (Build.VERSION.SDK_INT >= 26 && !act.packageManager.canRequestPackageInstalls()) {
+    /**
+     * Mở trình cài đặt APK.
+     * Trả về false nếu cần cấp quyền cài đặt ứng dụng
+     * từ nguồn không xác định.
+     */
+    fun install(act: Activity, file: File): Boolean {
+
+        if (!file.exists() || file.length() <= 0L) {
+            error("Không tìm thấy file APK hợp lệ")
+        }
+
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !act.packageManager.canRequestPackageInstalls()
+        ) {
             act.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${act.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${act.packageName}")
+                )
             )
+
             return false
         }
-        val uri = if (Build.VERSION.SDK_INT >= 24)
-            FileProvider.getUriForFile(act, "${act.packageName}.fileprovider", f)
-        else Uri.fromFile(f)
-        act.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            FileProvider.getUriForFile(
+                act,
+                "${act.packageName}.fileprovider",
+                file
+            )
+        } else {
+            Uri.fromFile(file)
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(
+                uri,
+                "application/vnd.android.package-archive"
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        act.startActivity(intent)
+
         return true
     }
 }
