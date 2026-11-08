@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
     private var all: List<Channel> = emptyList()
     private var lastSig = ""
+    private var lastAutoRefresh = 0L
     private val dateFmt = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi", "VN"))
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
@@ -46,6 +47,10 @@ class MainActivity : AppCompatActivity() {
             tvDate.text = dateFmt.format(now)
             tvTime.text = timeFmt.format(now)
             if (now.time / 1000 % 30 == 0L) render()
+            if (now.time - lastAutoRefresh >= 120_000L) {
+                lastAutoRefresh = now.time
+                load()
+            }
             ui.postDelayed(this, 1000 - now.time % 1000)
         }
     }
@@ -75,9 +80,8 @@ class MainActivity : AppCompatActivity() {
             isChecked = prefs.getBoolean("filter", true)
             setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("filter", c).apply(); render(true) }
         }
-        val btnLink = Button(this).apply { text = "Nhập link"; setOnClickListener { askLink() } }
         val btnReload = Button(this).apply { text = "Làm mới"; setOnClickListener { load() } }
-        bar.addView(sw); bar.addView(btnLink); bar.addView(btnReload)
+        bar.addView(sw); bar.addView(btnReload)
         root.addView(bar)
 
         tvStatus = TextView(this).apply { setTextColor(0xFF9AA3B0.toInt()); textSize = 12f; setPadding(0, dp(6), 0, 0) }
@@ -94,7 +98,8 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
     private fun load() {
-        val url = prefs.getString("url", null)?.takeIf { it.isNotBlank() } ?: Config.DEFAULT_SOURCE_URL
+        lastAutoRefresh = System.currentTimeMillis()
+        val url = Config.DEFAULT_SOURCE_URL
         if (url.isBlank()) {
             tvStatus.text = "Chưa có link nguồn."
             return
