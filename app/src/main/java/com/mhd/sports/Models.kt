@@ -10,8 +10,8 @@ object Config {
     /** Playlist M3U mặc định của người dùng; ứng dụng tự tải lại nội dung mỗi 2 phút. */
     const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/xiaomi308hd/sport-api/refs/heads/main/thethao.m3u"
 
-    /** Repo GitHub Releases chứa APK. Chưa tự đặt vì repo phát hành APK cần được xác nhận riêng. */
-    const val GITHUB_REPO = "guiterhd-bit/MHD-Sports"
+    /** Repo phát hành được truyền từ GitHub Actions theo github.repository. */
+    val GITHUB_REPO: String get() = BuildConfig.GITHUB_REPO
 
     const val LINK_HINT = "Dán link index.json, JSON, M3U hoặc M3U8"
     const val DEFAULT_DURATION_MIN = 120

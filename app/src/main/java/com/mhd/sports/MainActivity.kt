@@ -586,7 +586,7 @@ class MainActivity : AppCompatActivity() {
         pillUpdate.text = "Đang tải 0%"
         lifecycleScope.launch {
             try {
-                val f = Updater.download(this@MainActivity, r.apkUrl) { pillUpdate.text = "Đang tải $it%" }
+                val f = Updater.download(this@MainActivity, r.apkUrl, r.code) { pillUpdate.text = "Đang tải $it%" }
                 val installedByAdb = Updater.install(this@MainActivity, f)
                 pillUpdate.text = if (installedByAdb) {
                     tvStatus.text = "Đã gửi lệnh cập nhật qua ADB. Ứng dụng sẽ khởi động lại sau khi cài đặt."

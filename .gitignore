@@ -3,3 +3,7 @@ build/
 local.properties
 .idea/
 *.iml
+app/release-key.jks
+*.keystore
+
+*.jks
