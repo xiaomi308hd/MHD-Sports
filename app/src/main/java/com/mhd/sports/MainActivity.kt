@@ -574,7 +574,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun confirmUpdate(r: Updater.Release) {
         AlertDialog.Builder(this)
-            .setTitle("Có bản mới: build ${r.code}")
+            .setTitle("Có bản mới: ${r.name} · build ${r.code}")
             .setMessage(r.notes.take(400).ifBlank { "Bản cập nhật mới đã sẵn sàng." })
             .setPositiveButton("Cập nhật ngay") { _, _ -> doUpdate(r) }
             .setNegativeButton("Để sau", null)
@@ -587,10 +587,17 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val f = Updater.download(this@MainActivity, r.apkUrl) { pillUpdate.text = "Đang tải $it%" }
-                pillUpdate.text = if (Updater.install(this@MainActivity, f)) "Có bản mới · Cập nhật"
-                else "Bật quyền cài đặt rồi bấm lại"
+                val installedByAdb = Updater.install(this@MainActivity, f)
+                pillUpdate.text = if (installedByAdb) {
+                    tvStatus.text = "Đã gửi lệnh cập nhật qua ADB. Ứng dụng sẽ khởi động lại sau khi cài đặt."
+                    "Đã cài cập nhật"
+                } else {
+                    tvStatus.text = "Nếu trình cài đặt không xuất hiện, hãy bật quyền cài ứng dụng cho MHD Sports rồi bấm cập nhật lại."
+                    "Chờ cài đặt · Bấm để thử lại"
+                }
             } catch (e: Exception) {
-                pillUpdate.text = "Lỗi tải, bấm để thử lại"
+                pillUpdate.text = "Lỗi cập nhật · Bấm để thử lại"
+                tvStatus.text = "Cập nhật thất bại: ${friendlyError(e)}"
             } finally {
                 downloading = false
             }
