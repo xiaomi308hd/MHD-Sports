@@ -69,6 +69,30 @@ jobs:
           make_latest: true
           files: app/build/outputs/apk/release/*.apk
 
+      - name: Generate version.json
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          NAME=$(basename "$APK")
+          BODY=$(printf '%s' "${{ github.event.head_commit.message || 'Manual build' }}" | head -n 1 | sed 's/"/\\"/g')
+          cat > version.json <<EOF
+          {
+            "versionCode": ${{ github.run_number }},
+            "versionName": "1.${{ github.run_number }}",
+            "apkUrl": "https://github.com/${{ github.repository }}/releases/download/build-${{ github.run_number }}/${NAME}",
+            "notes": "${BODY}"
+          }
+          EOF
+          cat version.json
+
+      - name: Commit version.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git commit -m "chore: update version.json [skip ci]" || echo "no changes"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
+
       - name: Remove Keystore
         if: always()
         run: rm -f mhd.jks
