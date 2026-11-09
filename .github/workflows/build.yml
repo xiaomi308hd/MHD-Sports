@@ -1,8 +1,11 @@
-name: Build APK
+
+name: Build release APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
   workflow_dispatch:
 
 permissions:
@@ -11,32 +14,75 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: "8.7"
 
-      - name: Build release APK
-        run: gradle :app:assembleRelease -PversionCode=${{ github.run_number }} --no-daemon
+      - name: Verify signing configuration
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_PASSWORD" || {
+            echo "::error::Missing KEYSTORE_PASSWORD"
+            exit 1
+          }
 
-      - uses: actions/upload-artifact@v4
+          test -n "$KEY_ALIAS" || {
+            echo "::error::Missing KEY_ALIAS"
+            exit 1
+          }
+
+          test -n "$KEY_PASSWORD" || {
+            echo "::error::Missing KEY_PASSWORD"
+            exit 1
+          }
+
+          test -f app/sportsplayer.jks || {
+            echo "::error::Keystore not found"
+            exit 1
+          }
+
+      - name: Build Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          gradle :app:assembleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.${{ github.run_number }} \
+            --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: MHDSports-apk
+          name: MHDSports-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Publish release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          body: ${{ github.event.head_commit.message }}
+          name: MHD Sports 1.${{ github.run_number }}
+          body: |
+            MHD Sports automated release.
+
+            Commit: ${{ github.sha }}
           make_latest: true
           files: app/build/outputs/apk/release/*.apk
