@@ -19,6 +19,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -30,8 +32,12 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +80,16 @@ class PlayerActivity : AppCompatActivity() {
     private var listUrl: String? = null
     private var playedOnce = false
     private var reconnects = 0
+    private var resumeOnStart = false
+
+    // Chống treo: kẹt ở trạng thái đệm quá lâu mà không báo lỗi => kết nối lại / thử cách khác.
+    private val stallWatch = Runnable { onStalled() }
+
+    // Đã xem được rồi thì chịu lỗi tải tạm thời lâu hơn (mất gói, đổi sóng) trước khi coi là lỗi thật;
+    // chưa xem được lần nào thì giữ mức thấp để chuyển nhanh sang cách/luồng dự phòng.
+    private val retryPolicy = object : DefaultLoadErrorHandlingPolicy() {
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = if (playedOnce) 8 else 3
+    }
 
     // ---- số liệu thực tế ----
     private val ui = Handler(Looper.getMainLooper())
@@ -103,7 +119,11 @@ class PlayerActivity : AppCompatActivity() {
 
         // ---- giao diện: video + thanh thông tin kính phía trên ----
         val root = FrameLayout(this)
-        view = PlayerView(this).apply { setBackgroundColor(Color.BLACK) }
+        view = PlayerView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            setKeepContentOnPlayerReset(true)                       // không chớp đen khi kết nối lại
+            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)      // luôn hiện vòng xoay khi đang đệm
+        }
         root.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
 
         val bar = LinearLayout(this).apply {
@@ -283,6 +303,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun startAttempt() {
+        ui.removeCallbacks(stallWatch)
         player?.release()
         val a = attempts[idx]
         val counter = object : TransferListener {
@@ -307,13 +328,45 @@ class PlayerActivity : AppCompatActivity() {
                 .setDefaultRequestProperties(a.headers)
                 .setTransferListener(counter)
         }
-        val p = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(factory)).build()
+
+        // Luôn chọn độ phân giải / bitrate cao nhất mà thiết bị giải mã được:
+        // bỏ giới hạn theo kích thước màn hình và tắt chuyển chất lượng tự động xuống thấp.
+        val trackSelector = DefaultTrackSelector(this)
+        val tsb = trackSelector.buildUponParameters()
+        tsb.setViewportSize(Int.MAX_VALUE, Int.MAX_VALUE, false)
+        tsb.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+        tsb.setMaxVideoBitrate(Int.MAX_VALUE)
+        tsb.setForceHighestSupportedBitrate(true)
+        tsb.setExceedVideoConstraintsIfNecessary(true)
+        trackSelector.setParameters(tsb.build())
+        // Đệm dày hơn mặc định: bắt đầu phát sau ~3s dữ liệu, sau khi đứng hình đợi đủ ~8s mới phát lại
+        // để không đứng liên tục; giữ tối đa 60s phía trước (luồng trực tiếp bị giới hạn bởi điểm live).
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(25_000, 60_000, 3_000, 8_000)
+            .build()
+        // Nếu bộ giải mã phần cứng ưu tiên khởi tạo lỗi (thường gặp ở độ phân giải cao) thì tự dùng bộ giải mã khác.
+        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+
+        val p = ExoPlayer.Builder(this, renderers)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(factory).setLoadErrorHandlingPolicy(retryPolicy)
+            )
+            .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)           // giữ Wi-Fi/CPU khi màn hình tắt hoặc TV vào chế độ chờ
+            .build()
         player = p
         view.player = p
         p.setVideoFrameMetadataListener(VideoFrameMetadataListener { _, _, _, _ -> frames.incrementAndGet() })
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) { playedOnce = true; reconnects = 0 }
+                ui.removeCallbacks(stallWatch)
+                when (state) {
+                    Player.STATE_READY -> { playedOnce = true; reconnects = 0 }
+                    Player.STATE_BUFFERING -> ui.postDelayed(stallWatch, if (playedOnce) 15_000L else 30_000L)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -321,7 +374,7 @@ class PlayerActivity : AppCompatActivity() {
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     p.seekToDefaultPosition(); p.prepare(); return
                 }
-                // Đang xem được rồi mới rớt mạng: kết nối lại cùng cách, tối đa 3 lần
+                // Đang xem được rồi mới rớt mạng: kết nối lại cùng cách, tối đa 3 lần liên tiếp
                 if (playedOnce && reconnects < 3) {
                     reconnects++; playedOnce = false
                     view.post { startAttempt() }
@@ -330,30 +383,49 @@ class PlayerActivity : AppCompatActivity() {
                 val code = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 val status = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
                 val retryable = status || error.errorCode in 2000..3999
-                // Lỗi HTTP: thử cách kế tiếp. Lỗi kết nối/định dạng: bỏ qua các cách chỉ đổi header, nhảy sang cách đổi giao thức.
-                val next = if (!retryable) -1
-                    else (idx + 1 until attempts.size).firstOrNull { status || attempts[it].protocol } ?: -1
-                if (next >= 0) {
-                    idx = next
-                    Toast.makeText(
-                        this@PlayerActivity,
-                        "${explainShort(code, error)}. Thử cách ${idx + 1}/${attempts.size}: ${attempts[idx].label}…",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    view.post { startAttempt() }
-                } else if (retryable && srcIdx < sources.size - 1) {
-                    Toast.makeText(this@PlayerActivity, "Luồng này lỗi, chuyển sang " + (sources[srcIdx + 1].label.ifBlank { "luồng dự phòng" }) + "…", Toast.LENGTH_SHORT).show()
-                    lifecycleScope.launch { beginSource(srcIdx + 1) }
-                } else {
-                    Toast.makeText(this@PlayerActivity, "Không phát được: " + explain(code, error), Toast.LENGTH_LONG).show()
-                }
+                advance(code, status, retryable, explainShort(code, error), explain(code, error))
             }
         })
         val uri = if (a.swapScheme) swapScheme(playUrl) else playUrl
         val type = a.forceMime ?: mime
-        p.setMediaItem(MediaItem.Builder().setUri(uri).apply { type?.let { setMimeType(it) } }.build())
+        val item = MediaItem.Builder().setUri(uri)
+            .apply { type?.let { setMimeType(it) } }
+            // Luồng trực tiếp: giữ khoảng đệm an toàn tối thiểu 8s sau điểm live (không ghi đè nếu luồng yêu cầu lớn hơn)
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinOffsetMs(8_000).build())
+            .build()
+        p.setMediaItem(item)
         p.prepare()
         p.playWhenReady = true
+    }
+
+    /** Thử cách kế tiếp -> luồng dự phòng kế tiếp -> báo hết cách. */
+    private fun advance(code: Int?, status: Boolean, retryable: Boolean, shortMsg: String, longMsg: String) {
+        // Lỗi HTTP: thử cách kế tiếp. Lỗi kết nối/định dạng: bỏ qua các cách chỉ đổi header, nhảy sang cách đổi giao thức.
+        val next = if (!retryable) -1
+            else (idx + 1 until attempts.size).firstOrNull { status || attempts[it].protocol } ?: -1
+        if (next >= 0) {
+            idx = next
+            Toast.makeText(this, "$shortMsg. Thử cách ${idx + 1}/${attempts.size}: ${attempts[idx].label}…", Toast.LENGTH_SHORT).show()
+            view.post { startAttempt() }
+        } else if (retryable && srcIdx < sources.size - 1) {
+            Toast.makeText(this, "Luồng này lỗi, chuyển sang " + (sources[srcIdx + 1].label.ifBlank { "luồng dự phòng" }) + "…", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch { beginSource(srcIdx + 1) }
+        } else {
+            Toast.makeText(this, "Không phát được: $longMsg", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Kẹt ở trạng thái đệm quá lâu mà không có lỗi: coi như luồng đã treo. */
+    private fun onStalled() {
+        val p = player ?: return
+        if (!p.playWhenReady || p.playbackState != Player.STATE_BUFFERING) return
+        if (playedOnce && reconnects < 3) {
+            reconnects++; playedOnce = false
+            Toast.makeText(this, "Luồng bị đứng, đang kết nối lại…", Toast.LENGTH_SHORT).show()
+            startAttempt()
+        } else {
+            advance(null, false, true, "Luồng không phản hồi", "luồng không phản hồi (hết thời gian chờ)")
+        }
     }
 
     private fun explainShort(code: Int?, e: PlaybackException): String = when {
@@ -375,7 +447,22 @@ class PlayerActivity : AppCompatActivity() {
         else -> e.errorCodeName
     }
 
+    // Ra khỏi app thì tạm dừng (đỡ tốn dữ liệu); quay lại thì nhảy về điểm trực tiếp để không bị trễ.
+    override fun onStop() {
+        player?.let { resumeOnStart = it.playWhenReady; it.playWhenReady = false }
+        super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (resumeOnStart) {
+            player?.let { if (it.isCurrentMediaItemLive) it.seekToDefaultPosition(); it.playWhenReady = true }
+            resumeOnStart = false
+        }
+    }
+
     override fun onDestroy() {
+        ui.removeCallbacks(stallWatch)
         ui.removeCallbacks(statsTick)
         player?.release()
         player = null

@@ -113,35 +113,14 @@ class ChannelAdapter(
         h.card.setOnClickListener { onClick(ch) }
     }
 
-    /** Chỉ cập nhật dòng thời gian (mỗi giây), không tải lại ảnh. */
-    override fun onBindViewHolder(h: VH, position: Int, payloads: MutableList<Any>) {
-        if (payloads.isNotEmpty()) {
-            val (ch, st) = items[position]
-            bindSub(h, ch, st)
-        } else super.onBindViewHolder(h, position, payloads)
-    }
-
     private fun bindSub(h: VH, ch: Channel, st: State) {
         val parts = mutableListOf<String>()
         ch.detail?.takeIf { it.isNotBlank() }?.let { parts += it }
-        ch.start?.let { s ->
-            val base = fmt.format(Date(s))
-            if (st == State.LIVE) {
-                val sec = ((System.currentTimeMillis() - s) / 1000).coerceAtLeast(0)
-                parts += base + " · " + String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
-            } else {
-                parts += base
-            }
-        }
+        ch.start?.let { s -> parts += fmt.format(Date(s)) }
         if (ch.start == null && st == State.LIVE) parts += "Đang phát trực tiếp"
         if (ch.start == null && st == State.UPCOMING) parts += "Chưa có giờ phát"
         h.sub.text = parts.joinToString("  |  ")
         h.sub.setTextColor(if (st == State.LIVE) 0xFFFF9A3C.toInt() else Glass.TEXT2)
-    }
-
-    /** Gọi mỗi giây: đếm phút:giây cho các trận đang phát. */
-    fun tickTimers() {
-        items.forEachIndexed { i, p -> if (p.second == State.LIVE) notifyItemChanged(i, "t") }
     }
 
     override fun getItemCount() = items.size

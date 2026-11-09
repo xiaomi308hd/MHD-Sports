@@ -66,7 +66,7 @@ class MainActivity : AppCompatActivity() {
     private val compact get() = resources.configuration.screenWidthDp < 520
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
-    // Mỗi giây: cập nhật đồng hồ, lọc lại trận theo giờ, đếm phút:giây trận đang phát
+    // Mỗi giây: cập nhật đồng hồ và lọc lại trận theo giờ
     private val tick = object : Runnable {
         override fun run() {
             val now = Date()
@@ -85,6 +85,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("p", MODE_PRIVATE)
+        // Xoá link người dùng đã lưu từ các bản cũ (tính năng nhập link đã bị gỡ).
+        getSharedPreferences("links", MODE_PRIVATE).edit().clear().apply()
 
         val root = FrameLayout(this)
         root.addView(ImageView(this).apply {
@@ -242,7 +244,7 @@ class MainActivity : AppCompatActivity() {
         } else btnReload.rotation = 0f
     }
 
-    // ---------- cài đặt: lọc theo giờ / sắp xếp / nhập link / cập nhật ----------
+    // ---------- cài đặt: lọc theo giờ / sắp xếp / cập nhật ----------
     private fun openSettings() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(6))
@@ -268,7 +270,6 @@ class MainActivity : AppCompatActivity() {
             t.background = if (on) Glass.accentButton(this, 16f) else Glass.button(this, 16f)
             render(true)
         }
-        row("Nhập link / link đã lưu") { dialog.dismiss(); askLink() }
         row("Sắp xếp, ẩn/hiện nhóm") { dialog.dismiss(); askOrder() }
                 val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
         row("Kiểm tra bản cập nhật  ·  đang dùng $ver") { dialog.dismiss(); checkUpdate(manual = true) }
@@ -284,62 +285,6 @@ class MainActivity : AppCompatActivity() {
         d.window?.setBackgroundDrawable(Glass.glass(this@MainActivity, 24f, tint = 0xF2101012.toInt()))
     }
 
-    // ---------- link ----------
-    private fun askLink() {
-        // Link có sẵn của ứng dụng không hiện trong ô nhập; chỉ hiện link do chính người dùng đã lưu.
-        val saved = LinkStore.active(this).orEmpty()
-        val et = EditText(this).apply {
-            hint = Config.LINK_HINT
-            setText(saved)
-            setSingleLine()
-            setTextColor(Color.WHITE); setHintTextColor(0x80FFFFFF.toInt())
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Nhập link của bạn")
-            .setMessage("Hỗ trợ link thường, link mã hoá (b64:…, %3A%2F…) và hậu tố |Referer=…\nĐể trống để dùng nguồn có sẵn của ứng dụng.")
-            .setView(et)
-            .setPositiveButton("Lưu & dùng") { _, _ ->
-                val value = et.text.toString().trim()
-                if (value.isEmpty()) {
-                    LinkStore.use(this, null)
-                } else if (!LinkStore.saveAndUse(this, value)) {
-                    tvStatus.text = "Link không hợp lệ (cần bắt đầu bằng http hoặc https)"
-                    return@setPositiveButton
-                }
-                lastSig = ""
-                load()
-            }
-            .setNeutralButton("Đã lưu") { _, _ -> showSavedLinks() }
-            .setNegativeButton("Huỷ", null)
-            .showGlass()
-    }
-
-    private fun showSavedLinks() {
-        val items = LinkStore.list(this)
-        if (items.isEmpty()) {
-            tvStatus.text = "Chưa có link nào được lưu"
-            return
-        }
-        val active = LinkStore.active(this)
-        val labels = items.map { (if (it.url == active) "● " else "") + it.name }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Link đã lưu")
-            .setItems(labels) { _, i ->
-                val item = items[i]
-                AlertDialog.Builder(this)
-                    .setTitle(item.name)
-                    .setItems(arrayOf("Dùng link này", "Xoá link")) { _, which ->
-                        if (which == 0) { LinkStore.use(this, item.url); lastSig = ""; load() }
-                        else { LinkStore.remove(this, item.url); lastSig = ""; load() }
-                    }
-                    .setNegativeButton("Đóng", null)
-                    .showGlass()
-            }
-            .setNegativeButton("Đóng", null)
-            .showGlass()
-    }
-
     private fun refreshDataIfDue() {
         val interval = Config.DATA_REFRESH_MIN * 60_000L
         if (!loadingData && (lastDataRefreshAt == 0L || System.currentTimeMillis() - lastDataRefreshAt >= interval)) {
@@ -349,8 +294,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun load(silent: Boolean = false) {
         if (loadingData) return
-        // Ưu tiên link người dùng đã lưu; không có thì dùng nguồn mặc định của ứng dụng.
-        val url = LinkStore.active(this) ?: Config.DEFAULT_SOURCE_URL
+        val url = Config.DEFAULT_SOURCE_URL
         loadingData = true
         if (!silent) spinReload(true)
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
@@ -401,10 +345,7 @@ class MainActivity : AppCompatActivity() {
             .filter { sport == null || it.first.sport == sport }
         val sig = filter.toString() + (sport?.name ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
-        if (!force && sig == lastSig) {
-            adapters.forEach { it.tickTimers() }   // chỉ đếm giờ, không dựng lại
-            return
-        }
+        if (!force && sig == lastSig) return
         lastSig = sig
 
         content.removeAllViews(); adapters.clear()

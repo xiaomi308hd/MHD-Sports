@@ -5,7 +5,7 @@ Tên gói: `com.mhd.sports`
 Ứng dụng Android phát trực tiếp thể thao từ link **m3u8 / M3U / JSON** (link rút gọn của bên thứ 3 vẫn dùng được).
 
 ## Tính năng
-- Nhập link cá nhân (nút **Nhập link**). Link có sẵn của ứng dụng **không hiện** trong ô nhập; để trống rồi Lưu là dùng lại nguồn có sẵn. Thông báo lỗi cũng không in link.
+- Nguồn dữ liệu cố định (`Config.DEFAULT_SOURCE_URL`): ứng dụng **không có** chức năng nhập hay lưu link; link người dùng đã lưu ở bản cũ được xoá khi mở app.
 - Gắn sẵn link: sửa `DEFAULT_SOURCE_URL` trong `app/src/main/java/com/mhd/sports/Models.kt`
 - Luồng bổ sung có sẵn (iptv-org: thể thao quốc tế, truyền hình Việt Nam): khai báo ở `Config.BUILTIN_STATIONS` (Models.kt) và `github-data/index.json`
 - Trang chủ có logo + tên ứng dụng (`res/drawable-nodpi/app_logo.png`, `Config.APP_NAME`)
@@ -13,7 +13,6 @@ Tên gói: `com.mhd.sports`
 - **Lọc bộ môn**: hàng nút Tất cả / Bóng đá / Bóng rổ / Bóng chuyền / Tennis / Cầu lông dưới thanh trên cùng, được nhớ cho lần sau. Môn được nhận từ trường `sport` của nguồn (nếu có) hoặc từ tên giải/trận/kênh; trận của API Chuối Chiên không rõ môn thì tính là bóng đá. Kênh không nhận ra môn chỉ hiện ở "Tất cả" (xem `Sports.kt`)
 - **Luồng HTTP không bị chặn**: cho phép HTTP không mã hoá (`network_security_config.xml`), tự đi theo chuyển hướng http↔https, nhận link dạng `https://...m3u8|User-Agent=abc&Referer=https://site`, và khi lỗi tự thử lần lượt: đổi header → đổi http↔https → bỏ kiểm tra chứng chỉ TLS (chỉ cho video) → ép đọc HLS → ép đọc FLV. Đang xem mà rớt mạng thì tự kết nối lại tối đa 3 lần
 - Giao diện liquid glass tông đen cam, nền sân vận động lấy từ ảnh thumbnail đã bỏ chữ (`res/drawable-nodpi/bg_stadium.jpg`)
-- Trận đang phát hiện đồng hồ đếm phút:giây tính từ giờ bắt đầu
 - Nút **Sắp xếp**: ghim, Lên/Xuống, **Ẩn/Hiện** từng nhóm
 - Nhóm xếp theo hàng ngang, mỗi kênh/trận là 1 thumbnail
 - Đồng hồ ngày giờ đầy đủ; mỗi 30 giây tự lọc theo giờ hiện tại
@@ -64,10 +63,16 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 
 - **Gộp trận trùng tên**: các mục cùng tên (sau khi bỏ nhãn `[hls]`, `[flv]`, `[hls2]`...) trong cùng một nhà đài và cùng giờ chỉ còn 1 thẻ. Bấm vào thẻ rồi đổi luồng **HLS / HLS2 / FLV** ngay trên thanh trạng thái phía trên của trình phát (thanh hiện khi chạm màn hình / bấm OK).
 - **Thanh trên cùng mới**: logo + tên ứng dụng bên trái, đồng hồ/ngày bên phải, kế bên là hai nút biểu tượng **Làm mới** và **Cài đặt**. Hàng bộ môn được căn giữa.
-- **Cài đặt** gom: Lọc theo giờ, Sắp xếp/ẩn-hiện nhóm, Nhập link nguồn, Kiểm tra bản cập nhật.
+- **Cài đặt** gom: Lọc theo giờ, Sắp xếp/ẩn-hiện nhóm, Kiểm tra bản cập nhật.
 - **Tự cập nhật**: dữ liệu tải lại mỗi `Config.DATA_REFRESH_MIN` phút (2 phút) và khi mở lại app; bản APK mới được kiểm tra khi mở app, khi quay lại app và mỗi 10 phút, hiện hộp thoại một lần cho mỗi bản mới. `Config.GITHUB_REPO` phải trỏ đúng repo chứa Releases (hiện đặt `guiterhd-bit/MHD-Sports`; sửa lại nếu repo của bạn tên khác).
 
 ### Gộp luồng nâng cao & nhận diện bộ môn
 - Nhãn trong ngoặc được bỏ khi so tên: `[hls]`, `[flv]`, `[hls2]`, chất lượng `HD`/`FHD`/`SD`/`4K`/`1080p`, và `geo`. Ví dụ `(KOBE)` và `(HD KOBE)` gộp thành một thẻ; trong trình phát có các nút `HLS`, `HD HLS`, `GEO HLS`, `FLV`...
 - Với API Chuối Chiên, luồng có chữ `geo` (ở nhãn, loại hoặc tên khoá `blvs_*`) được đưa vào danh sách luồng của cùng bình luận viên, xếp cuối.
 - Bóng rổ: nhận từ tên giải (NBA, WNBA, CBA, KBL, Euroleague...) hoặc tên đội NBA/WNBA (xem `BASKETBALL_RE` trong `Sports.kt`). Muốn thêm đội/giải, sửa danh sách đó.
+
+## Trình phát: ổn định & luôn ưu tiên độ phân giải cao nhất
+- **Độ phân giải**: luôn chọn track video có bitrate/độ phân giải cao nhất mà thiết bị giải mã được (không giới hạn theo kích thước màn hình, không tự hạ chất lượng). Nếu bộ giải mã phần cứng lỗi sẽ tự dùng bộ giải mã khác.
+- **Thứ tự luồng**: khi một trận có nhiều chất lượng, luồng 4K > FHD/1080p > HD/720p > không nhãn > SD được thử trước; cùng chất lượng thì HLS trước FLV; GEO xếp cuối. Luồng lỗi tự chuyển sang luồng kế tiếp (chất lượng thấp hơn) để không mất hình.
+- **Ổn định**: đệm lớn hơn (bắt đầu phát sau ~3s, đứng hình thì đợi ~8s dữ liệu mới phát lại, giữ tối đa 60s), chịu lỗi tải tạm thời lâu hơn sau khi đã xem được (8 lần thử), luồng live giữ khoảng đệm tối thiểu 8s sau điểm trực tiếp, tự kết nối lại khi kẹt đệm quá 15s (30s lúc mới mở), giữ khung hình cuối khi kết nối lại, tạm dừng khi rời app và nhảy về điểm trực tiếp khi quay lại.
+- Đổi sang luồng chất lượng thấp hơn thủ công vẫn dùng được qua các nút trên thanh phía trên trình phát.

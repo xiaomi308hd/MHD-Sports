@@ -40,10 +40,10 @@ object SourceLoader {
     suspend fun load(url: String): List<Channel> = loadCatalog(url).channels
 
     suspend fun loadCatalog(rawUrl: String): Result = withContext(Dispatchers.IO) {
-        val decoded = LinkStore.decode(rawUrl)
+        val decoded = UrlTools.decode(rawUrl)
         val url = decoded.url.ifBlank { rawUrl }
         // Link trỏ thẳng vào một luồng (flv/mp4/ts) => tạo luôn một kênh để phát
-        if (LinkStore.isDirectStream(url)) {
+        if (UrlTools.isDirectStream(url)) {
             val ch = Channel("Link của bạn", null, url, "Link của bạn", null, null, headers = decoded.headers)
             return@withContext Result(listOf(ch), 1, listOf("Link của bạn"))
         }
@@ -158,7 +158,7 @@ object SourceLoader {
 
     private class Tags(val format: String, val mods: List<String>)
     private class Member(val tags: Tags, val ch: Channel)
-    private class Variant(val label: String, val url: String, val headers: Map<String, String>, val modRank: Int, val fmtRank: Int)
+    private class Variant(val label: String, val url: String, val headers: Map<String, String>, val geoRank: Int, val quality: Int, val fmtRank: Int)
 
     private fun foldName(t: String): String =
         java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(DIACRITICS, "")
@@ -192,12 +192,21 @@ object SourceLoader {
         else -> 1
     }
 
-    /** Không nhãn -> 0, HD/FHD/4K -> 1, nhãn khác -> 2, GEO -> 3. */
-    private fun modRank(mods: List<String>): Int = when {
-        mods.isEmpty() -> 0
-        "GEO" in mods -> 3
-        mods.all { it in setOf("HD", "FHD", "4K", "1080P", "1080", "720P", "720") } -> 1
-        else -> 2
+    /** GEO luôn xếp sau cùng. */
+    private fun geoRank(mods: List<String>): Int = if ("GEO" in mods) 1 else 0
+
+    private val Q_4K = Regex("""(?i)(?<![a-z0-9])(4k|2160p?|uhd)(?![a-z0-9])""")
+    private val Q_FHD = Regex("""(?i)(?<![a-z0-9])(fhd|full[ -]?hd|1080p?)(?![a-z0-9])""")
+    private val Q_HD = Regex("""(?i)(?<![a-z])(hd|720p?)""")
+    private val Q_SD = Regex("""(?i)(?<![a-z0-9])(sd|576p?|480p?|360p?|240p?)(?![a-z])""")
+
+    /** Điểm độ phân giải suy từ nhãn: 4K > FHD/1080 > HD/720 > không nhãn > SD. Điểm cao được thử trước. */
+    private fun qualityScore(text: String): Int = when {
+        Q_4K.containsMatchIn(text) -> 40
+        Q_FHD.containsMatchIn(text) -> 30
+        Q_HD.containsMatchIn(text) -> 20
+        Q_SD.containsMatchIn(text) -> 5
+        else -> 10
     }
 
     /** Tách nhãn trong ngoặc ra khỏi tên. Trả về (tên đã sạch, nhãn). */
@@ -270,9 +279,10 @@ object SourceLoader {
                 val raw = b.members.map { m ->
                     val fmt = m.tags.format.ifEmpty { labelFromUrl(m.ch.url) }
                     Variant((m.tags.mods + fmt).filter { it.isNotBlank() }.joinToString(" "),
-                        m.ch.url, m.ch.headers, modRank(m.tags.mods), labelRank(fmt))
+                        m.ch.url, m.ch.headers, geoRank(m.tags.mods), qualityScore(m.tags.mods.joinToString(" ")), labelRank(fmt))
                 }.filter { it.url.isNotBlank() }.distinctBy { it.url }
-                val sorted = raw.sortedWith(compareBy({ it.modRank }, { it.fmtRank }, { it.label }))
+                // Độ phân giải cao nhất thử trước; cùng độ phân giải thì HLS trước FLV; GEO sau cùng.
+                val sorted = raw.sortedWith(compareBy<Variant>({ it.geoRank }, { -it.quality }, { it.fmtRank }, { it.label }))
                 val labels = numberLabels(sorted.map { it.label })
                 if (sorted.isEmpty()) emptyList()
                 else listOf(StreamOption(
@@ -438,8 +448,9 @@ object SourceLoader {
         }
 
         return groups.values.map { list ->
-            // HLS thường phát trước, FLV sau; GEO được xếp cuối.
-            val sorted = list.distinctBy { it.url }.sortedWith(compareBy({ it.geo }, { it.fmt.ordinal }))
+            // Độ phân giải cao nhất phát trước; cùng độ phân giải thì HLS trước FLV; GEO xếp cuối.
+            val sorted = list.distinctBy { it.url }
+                .sortedWith(compareBy<RawStream>({ it.geo }, { -qualityScore(it.quality) }, { it.fmt.ordinal }))
             val first = sorted.first()
             val label = first.commentator.trim().ifBlank { "Phát trực tiếp" }
 

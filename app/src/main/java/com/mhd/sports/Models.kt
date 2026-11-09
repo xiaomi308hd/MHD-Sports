@@ -7,13 +7,12 @@ object Config {
     const val APP_NAME = "MHD Sports"
     const val APP_TAGLINE = "Trực tiếp thể thao"
 
-    /** Playlist M3U mặc định của người dùng; ứng dụng tự tải lại nội dung mỗi 2 phút. */
+    /** Nguồn dữ liệu duy nhất của ứng dụng (cố định, không cho nhập link khác); tự tải lại mỗi DATA_REFRESH_MIN phút. */
     const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/xiaomi308hd/sport-api/refs/heads/main/thethao.m3u"
 
     /** Repo GitHub Releases chứa APK. Chưa tự đặt vì repo phát hành APK cần được xác nhận riêng. */
     const val GITHUB_REPO = "guiterhd-bit/MHD-Sports"
 
-    const val LINK_HINT = "Dán link index.json, JSON, M3U hoặc M3U8"
     const val DEFAULT_DURATION_MIN = 120
     const val DATA_REFRESH_MIN = 2
 
