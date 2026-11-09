@@ -1,23 +1,4 @@
-
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
-dependencyResolutionManagement {
-    repositoriesMode.set(
-        RepositoriesMode.FAIL_ON_PROJECT_REPOS
-    )
-
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-rootProject.name = "MHD-Sports"
-
+pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+rootProject.name = "MHDSports"
 include(":app")
