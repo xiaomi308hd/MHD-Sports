@@ -22,8 +22,8 @@ import java.util.concurrent.TimeUnit
  * GitHub Releases -> tải APK -> thử ADB nội bộ -> fallback trình cài đặt Android.
  */
 object Updater {
-    private val releaseUrl: String
-        get() = "https://api.github.com/repos/${Config.GITHUB_REPO}/releases/latest"
+    private const val RELEASE_URL =
+        "https://api.github.com/repos/xiaomi308hd/MHD-Sports/releases/latest"
 
     data class Release(
         val code: Int,
@@ -40,7 +40,7 @@ object Updater {
     /** Đọc GitHub Releases/latest và tìm APK đính kèm của bản phát hành mới nhất. */
     suspend fun latest(): Release? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url("$releaseUrl?t=${System.currentTimeMillis()}")
+            .url("$RELEASE_URL?t=${System.currentTimeMillis()}")
             .header("User-Agent", "MHDSports-Updater")
             .header("Accept", "application/vnd.github+json")
             .header("Cache-Control", "no-cache, no-store")
@@ -55,38 +55,22 @@ object Updater {
                     ?: error("GitHub không trả về dữ liệu phát hành"))
 
                 val tag = json.optString("tag_name", "")
-                // Chỉ chấp nhận tag do workflow phát hành: build-<versionCode>.
-                // Không gom mọi chữ số trong tag vì v1.2.3 sẽ bị hiểu nhầm thành 123.
-                val code = Regex("^build-(\\d+)$", RegexOption.IGNORE_CASE)
-                    .matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: error("Tag Release không hợp lệ: $tag (cần dạng build-88)")
+                val digits = tag.replace(Regex("[^0-9]"), "")
+                val code = digits.toIntOrNull()
+                    ?: error("Tag phiên bản không hợp lệ: $tag")
 
                 val assets = json.optJSONArray("assets")
                     ?: error("Bản phát hành chưa có danh sách APK")
                 var apkUrl: String? = null
                 var apkName: String? = null
-                // Ưu tiên tên APK chuẩn của workflow; nếu repo cũ dùng tên khác thì lấy APK đầu tiên.
                 for (i in 0 until assets.length()) {
                     val asset = assets.optJSONObject(i) ?: continue
                     val name = asset.optString("name", "")
                     val url = asset.optString("browser_download_url", "")
-                    if (name.equals("MHD-Sports.apk", ignoreCase = true) &&
-                        url.startsWith("https://")) {
+                    if (name.endsWith(".apk", ignoreCase = true) && url.startsWith("https://")) {
                         apkName = name
                         apkUrl = url
                         break
-                    }
-                }
-                if (apkUrl == null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(i) ?: continue
-                        val name = asset.optString("name", "")
-                        val url = asset.optString("browser_download_url", "")
-                        if (name.endsWith(".apk", ignoreCase = true) && url.startsWith("https://")) {
-                            apkName = name
-                            apkUrl = url
-                            break
-                        }
                     }
                 }
                 if (apkUrl == null) return@withContext null
@@ -101,7 +85,6 @@ object Updater {
     suspend fun download(
         ctx: Context,
         url: String,
-        expectedVersionCode: Int,
         onProgress: (Int) -> Unit
     ): File = withContext(Dispatchers.IO) {
         require(url.startsWith("https://")) { "Đường dẫn APK không hợp lệ" }
@@ -112,14 +95,7 @@ object Updater {
         val temp = File(dir, "update.apk.tmp")
         temp.delete()
         try {
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "MHDSports-Updater")
-                .header("Accept", "application/vnd.android.package-archive")
-                .header("Cache-Control", "no-cache")
-                .build()
-            Net.client.newBuilder().callTimeout(3, TimeUnit.MINUTES).build()
-                .newCall(request).execute().use { response ->
+            Net.client.newCall(Net.req(url)).execute().use { response ->
                 if (!response.isSuccessful) error("Tải APK thất bại: HTTP ${response.code}")
                 val body = response.body ?: error("Máy chủ không trả về file APK")
                 val total = body.contentLength()
@@ -149,19 +125,6 @@ object Updater {
             }
             temp.inputStream().use {
                 if (it.read() != 0x50 || it.read() != 0x4B) error("Tệp tải về không phải APK hợp lệ")
-            }
-            val archiveInfo = ctx.packageManager.getPackageArchiveInfo(
-                temp.absolutePath, android.content.pm.PackageManager.GET_ACTIVITIES
-            ) ?: error("Không đọc được thông tin APK tải về")
-            if (archiveInfo.packageName != ctx.packageName) {
-                error("APK không thuộc ứng dụng ${ctx.packageName}")
-            }
-            val downloadedCode = PackageInfoCompat.getLongVersionCode(archiveInfo)
-            if (downloadedCode != expectedVersionCode.toLong()) {
-                error("VersionCode APK ($downloadedCode) không khớp Release ($expectedVersionCode)")
-            }
-            if (downloadedCode <= localCode(ctx)) {
-                error("APK tải về không phải phiên bản mới hơn đang cài")
             }
             if (file.exists() && !file.delete()) error("Không thể thay thế APK cũ")
             if (!temp.renameTo(file)) error("Không thể hoàn tất file APK")

@@ -41,7 +41,7 @@ Lần đầu cần bật "Cho phép cài từ nguồn không rõ" cho ứng dụ
 2. Vào tab **Actions** → chạy **Build APK** (tự chạy khi push).
 3. Tải file APK ở mục **Releases** (hoặc **Artifacts** của lần chạy).
 
-APK Release được ký bằng keystore cung cấp qua GitHub Actions Secrets. Phải dùng đúng keystore đã ký APK đang cài để cập nhật đè được; không lưu keystore hoặc mật khẩu trong repository.
+APK ký bằng `app/sportsplayer.jks` (khoá cố định để cập nhật đè được). Dùng cá nhân thì để nguyên; phát hành công khai hãy thay bằng keystore riêng và cất mật khẩu trong GitHub Secrets.
 
 ## Nguồn bị lỗi HTTP khi phát
 Khi máy chủ trả mã lỗi (ví dụ 403), trình phát tự thử lần lượt: User-Agent trình duyệt → thêm Referer/Origin theo máy chủ phát → theo nguồn danh sách → giả lập VLC → giả lập ffmpeg, và báo rõ mã lỗi.
@@ -73,36 +73,13 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 - Bóng rổ: nhận từ tên giải (NBA, WNBA, CBA, KBL, Euroleague...) hoặc tên đội NBA/WNBA (xem `BASKETBALL_RE` trong `Sports.kt`). Muốn thêm đội/giải, sửa danh sách đó.
 
 
-## Cập nhật ứng dụng qua GitHub Releases
+## Cập nhật ứng dụng
 
-Ứng dụng gọi API `https://api.github.com/repos/<owner>/<repo>/releases/latest`.
-Repository được lấy trực tiếp từ `github.repository` khi GitHub Actions build,
-không còn hai địa chỉ repo bị khai báo lệch nhau trong mã nguồn. Repository phát hành
-phải để **Public** vì ứng dụng gọi GitHub API không kèm token; với repo Private,
-GitHub thường trả HTTP 404 cho yêu cầu ẩn danh. Release cần có
-tag đúng dạng `build-N` và asset `MHD-Sports.apk`. `N` phải trùng `versionCode`
-của APK. Ứng dụng chỉ thông báo khi versionCode trên GitHub lớn hơn bản đang cài.
+MHD Sports kiểm tra bản phát hành mới nhất tại GitHub Releases của repository
+`xiaomi308hd/MHD-Sports`. Mỗi bản phát hành cần có tag dạng `build-N` và đính kèm
+file APK trong mục Assets. Ứng dụng tự kiểm tra khi khởi động/quay lại ứng dụng
+và định kỳ; người dùng cũng có thể kiểm tra thủ công trong Cài đặt.
 
-Khi tải, ứng dụng kiểm tra file APK đọc được, đúng package `com.mhd.sports`,
-đúng versionCode của tag và cao hơn bản đang cài rồi mới mở quy trình cài đặt.
-Android vẫn kiểm tra chữ ký khi cài đè; APK phát hành bắt buộc dùng cùng keystore
-đã ký bản đang cài.
-
-### GitHub Actions Secrets cần thiết
-
-Thiết lập các Secrets trong **Settings → Secrets and variables → Actions**:
-
-- `ANDROID_KEYSTORE_BASE64`: nội dung Base64 của đúng file keystore dùng ký bản APK hiện tại.
-- `ANDROID_KEYSTORE_PASSWORD`: mật khẩu keystore.
-- `ANDROID_KEY_ALIAS`: alias của khóa ký.
-- `ANDROID_KEY_PASSWORD`: mật khẩu của khóa.
-
-Có thể tạo chuỗi Base64 từ file keystore trên máy tính bằng:
-`base64 -w 0 sportsplayer.jks` (Linux/macOS có thể dùng `base64 sportsplayer.jks`).
-Không đưa mật khẩu hoặc file khóa riêng lên mã nguồn công khai. Nếu không còn keystore
-đã ký bản APK đang cài, bản mới sẽ không thể cài đè; khi đó cần quy trình chuyển đổi
-ứng dụng riêng (gỡ bản cũ/cài lại) hoặc dùng đúng khóa đã lưu trước đây.
-
-Mỗi lần push lên `main`, workflow build APK đã ký, tải artifact và tạo Release
-tag `build-${github.run_number}`. Nếu tự chạy workflow, versionCode vẫn tăng theo
-số lần chạy của workflow đó.
+Khi cập nhật, ứng dụng tải APK, thử cài đè qua ADB nội bộ `127.0.0.1:5555`;
+nếu ADB không khả dụng, ứng dụng chuyển sang trình cài đặt Android. Các bản APK
+phải được ký bằng cùng keystore `app/sportsplayer.jks` để cài đè lên bản cũ.
