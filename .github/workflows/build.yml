@@ -13,20 +13,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.7
+          gradle-version: '8.7'
+
       - name: Build release APK
-        run: gradle assembleRelease -PversionCode=${{ github.run_number }} --no-daemon
+        run: gradle :app:assembleRelease -PversionCode=${{ github.run_number }} --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: MHDSports-apk
           path: app/build/outputs/apk/release/*.apk
-      # Mỗi lần push tạo 1 bản phát hành mới => app thấy và cho cập nhật
+          if-no-files-found: error
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
