@@ -71,3 +71,15 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 - Nhãn trong ngoặc được bỏ khi so tên: `[hls]`, `[flv]`, `[hls2]`, chất lượng `HD`/`FHD`/`SD`/`4K`/`1080p`, và `geo`. Ví dụ `(KOBE)` và `(HD KOBE)` gộp thành một thẻ; trong trình phát có các nút `HLS`, `HD HLS`, `GEO HLS`, `FLV`...
 - Với API Chuối Chiên, luồng có chữ `geo` (ở nhãn, loại hoặc tên khoá `blvs_*`) được đưa vào danh sách luồng của cùng bình luận viên, xếp cuối.
 - Bóng rổ: nhận từ tên giải (NBA, WNBA, CBA, KBL, Euroleague...) hoặc tên đội NBA/WNBA (xem `BASKETBALL_RE` trong `Sports.kt`). Muốn thêm đội/giải, sửa danh sách đó.
+
+
+## Cập nhật ứng dụng
+
+MHD Sports kiểm tra bản phát hành mới nhất tại GitHub Releases của repository
+`xiaomi308hd/MHD-Sports`. Mỗi bản phát hành cần có tag dạng `build-N` và đính kèm
+file APK trong mục Assets. Ứng dụng tự kiểm tra khi khởi động/quay lại ứng dụng
+và định kỳ; người dùng cũng có thể kiểm tra thủ công trong Cài đặt.
+
+Khi cập nhật, ứng dụng tải APK, thử cài đè qua ADB nội bộ `127.0.0.1:5555`;
+nếu ADB không khả dụng, ứng dụng chuyển sang trình cài đặt Android. Các bản APK
+phải được ký bằng cùng keystore `app/sportsplayer.jks` để cài đè lên bản cũ.
