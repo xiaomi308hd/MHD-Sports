@@ -65,11 +65,11 @@ object Glass {
         addState(intArrayOf(), accent(c, rDp, 1f, 0x99FFFFFF.toInt()))
     }
 
-    fun chip(c: Context, text: String, sizeSp: Float = 13f): TextView = TextView(c).apply {
+    fun chip(c: Context, text: String, sizeSp: Float = 13f, hPadDp: Float = 14f, vPadDp: Float = 8f): TextView = TextView(c).apply {
         this.text = text
         setTextColor(0xFFFFFFFF.toInt()); textSize = sizeSp
         setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER
-        val h = dp(c, 14f).toInt(); val v = dp(c, 8f).toInt()
+        val h = dp(c, hPadDp).toInt(); val v = dp(c, vPadDp).toInt()
         setPadding(h, v, h, v)
         isFocusable = true; isClickable = true
         background = button(c)

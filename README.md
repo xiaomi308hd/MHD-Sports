@@ -76,3 +76,8 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 - **Thứ tự luồng**: khi một trận có nhiều chất lượng, luồng 4K > FHD/1080p > HD/720p > không nhãn > SD được thử trước; cùng chất lượng thì HLS trước FLV; GEO xếp cuối. Luồng lỗi tự chuyển sang luồng kế tiếp (chất lượng thấp hơn) để không mất hình.
 - **Ổn định**: đệm lớn hơn (bắt đầu phát sau ~3s, đứng hình thì đợi ~8s dữ liệu mới phát lại, giữ tối đa 60s), chịu lỗi tải tạm thời lâu hơn sau khi đã xem được (8 lần thử), luồng live giữ khoảng đệm tối thiểu 8s sau điểm trực tiếp, tự kết nối lại khi kẹt đệm quá 15s (30s lúc mới mở), giữ khung hình cuối khi kết nối lại, tạm dừng khi rời app và nhảy về điểm trực tiếp khi quay lại.
 - Đổi sang luồng chất lượng thấp hơn thủ công vẫn dùng được qua các nút trên thanh phía trên trình phát.
+
+## Lọc theo nhà đài (logo + tên)
+- Hàng logo + tên nhà đài nằm trên hàng lọc bộ môn, căn giữa và dàn đều; thêm nhà đài mới vào nguồn thì tự có thêm nút. Bấm một nhà đài để chỉ xem trận của nhà đài đó, bấm lại để xem tất cả. Lựa chọn được nhớ cho lần sau.
+- Tên nhà đài lấy từ `group-title` trong M3U. Logo nhà đài lấy từ thuộc tính `group-logo="https://..."` trên dòng `#EXTINF` (chỉ cần ghi ở một dòng của nhà đài đó), hoặc khai báo trong `Config.STATION_LOGOS` (Models.kt). Không có logo thì hiện chữ cái đầu.
+- Hàng lọc bộ môn đã được tăng cỡ chữ và nút.

@@ -49,6 +49,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pillUpdate: TextView
     private var lastUpdateCheckAt = 0L
     private val sportChips = mutableMapOf<Sport?, TextView>()
+    private lateinit var stationRow: LinearLayout
+    private lateinit var stationScroll: HorizontalScrollView
+    private var stationSig = ""
 
     private var all: List<Channel> = emptyList()
     private var lastSig = ""
@@ -157,12 +160,24 @@ class MainActivity : AppCompatActivity() {
         bar.addView(btnSettings, LinearLayout.LayoutParams(iconSize, iconSize).also { it.leftMargin = dp(8) })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
-        // ---- lọc theo bộ môn: căn giữa khung ----
+        // ---- lọc theo nhà đài: logo + tên, căn giữa và dàn đều ra hai bên ----
+        stationRow = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        stationScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFillViewport = true     // ít nhà đài: căn giữa; nhiều: vuốt ngang
+            visibility = View.GONE    // hiện khi đã có dữ liệu
+            addView(stationRow, FrameLayout.LayoutParams(WRAP, MATCH))
+        }
+        col.addView(stationScroll, LinearLayout.LayoutParams(MATCH, WRAP).also { it.topMargin = dp(10) })
+
+        // ---- lọc theo bộ môn: căn giữa khung, cỡ lớn ----
         val sportRow = LinearLayout(this).apply { gravity = Gravity.CENTER }
         fun addSportChip(sport: Sport?, label: String) {
-            val chip = Glass.chip(this, label, 13f).apply { setOnClickListener { selectSport(sport) } }
+            val chip = Glass.chip(this, label, if (compact) 15f else 18f,
+                hPadDp = if (compact) 16f else 24f, vPadDp = if (compact) 10f else 13f
+            ).apply { setOnClickListener { selectSport(sport) } }
             sportChips[sport] = chip
-            sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.setMargins(dp(4), 0, dp(4), 0) })
+            sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.setMargins(dp(6), 0, dp(6), 0) })
         }
         addSportChip(null, "Tất cả")
         Sport.values().forEach { addSportChip(it, it.label) }
@@ -216,6 +231,81 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putString("sport", sport?.name ?: "").apply()
         styleSportChips()
         render(true)
+    }
+
+    /** Nhà đài đang chọn (null = tất cả). Bỏ qua nếu nhà đài đó không còn trong dữ liệu. */
+    private fun currentStation(): String? {
+        val name = prefs.getString("station", "") ?: ""
+        return name.takeIf { it.isNotBlank() && all.any { c -> c.group == it } }
+    }
+
+    private fun selectStation(name: String?) {
+        // bấm lại nhà đài đang chọn => bỏ lọc, xem tất cả
+        val next = if (name == currentStation()) null else name
+        prefs.edit().putString("station", next ?: "").apply()
+        stationSig = ""
+        render(true)
+    }
+
+    private fun stationChip(name: String, logo: String?, selected: Boolean): View {
+        val size = dp(if (compact) 34 else 44)
+        val chip = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            isFocusable = true; isClickable = true
+            setPadding(dp(10), dp(8), dp(if (compact) 14 else 20), dp(8))
+            background = if (selected) Glass.accentButton(this@MainActivity, 24f) else Glass.button(this@MainActivity, 24f)
+            setOnClickListener { selectStation(name) }
+        }
+        val letter = TextView(this).apply {
+            text = name.trim().take(1).uppercase()
+            setTextColor(Color.WHITE); textSize = if (compact) 15f else 19f
+            setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(0x66000000)
+                setStroke(dp(1), 0x99FFFFFF.toInt())
+            }
+        }
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.GONE
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            Glass.clipRound(this, size / resources.displayMetrics.density / 2f)
+        }
+        val box = FrameLayout(this)
+        box.addView(letter, FrameLayout.LayoutParams(size, size))
+        box.addView(img, FrameLayout.LayoutParams(size, size))
+        if (!logo.isNullOrBlank()) {
+            img.load(logo) {
+                listener(
+                    onSuccess = { _, _ -> img.visibility = View.VISIBLE; letter.visibility = View.GONE },
+                    onError = { _, _ -> img.visibility = View.GONE; letter.visibility = View.VISIBLE }
+                )
+            }
+        }
+        chip.addView(box, LinearLayout.LayoutParams(size, size))
+        chip.addView(TextView(this).apply {
+            text = name; setTextColor(Color.WHITE); textSize = if (compact) 15f else 18f
+            setTypeface(typeface, Typeface.BOLD); maxLines = 1
+        }, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(10) })
+        return chip
+    }
+
+    /** Dựng lại hàng nhà đài từ dữ liệu; chỉ dựng khi danh sách / logo / lựa chọn thay đổi. */
+    private fun buildStationRow() {
+        val hid = hidden()
+        val names = orderedGroups(all.map { it.group }.distinct()).filter { it !in hid }
+        val logos = names.associateWith { g -> all.firstOrNull { it.group == g && !it.groupLogo.isNullOrBlank() }?.groupLogo }
+        val cur = currentStation()
+        val sig = names.joinToString("|") { it + "=" + logos[it] } + "#" + cur
+        if (sig == stationSig) return
+        stationSig = sig
+        stationRow.removeAllViews()
+        stationScroll.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        names.forEach { g ->
+            stationRow.addView(stationChip(g, logos[g], g == cur),
+                LinearLayout.LayoutParams(WRAP, WRAP).also { it.setMargins(dp(6), 0, dp(6), 0) })
+        }
     }
 
     private fun styleSportChips() {
@@ -340,16 +430,21 @@ class MainActivity : AppCompatActivity() {
         val filter = prefs.getBoolean("filter", true)
         val hid = hidden()
         val sport = currentSport()
+        val station = currentStation()
         val items = all.map { it to it.state(now) }
             .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
             .filter { sport == null || it.first.sport == sport }
-        val sig = filter.toString() + (sport?.name ?: "") + hid.sorted().joinToString(",") + "#" +
+            .filter { station == null || it.first.group == station }
+        val sig = filter.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) return
         lastSig = sig
+        buildStationRow()
 
         content.removeAllViews(); adapters.clear()
         tvStatus.text = when {
+            items.isEmpty() && station != null && sport != null -> "${station} chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” hoặc bấm lại nhà đài để bỏ lọc."
+            items.isEmpty() && station != null -> "$station hiện chưa có trận/kênh. Bấm lại logo nhà đài để xem tất cả."
             items.isEmpty() && sport != null -> "Chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” để xem đầy đủ."
             items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
             else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} nhà đài" +

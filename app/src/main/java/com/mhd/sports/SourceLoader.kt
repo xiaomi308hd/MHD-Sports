@@ -566,6 +566,8 @@ object SourceLoader {
                     logo = (m["tvg-logo"] ?: m["logo"])?.takeIf { it.isNotBlank() },
                     url = line,
                     group = m["group-title"] ?: "Khác",
+                    groupLogo = (m["group-logo"] ?: m["tvg-group-logo"] ?: m["station-logo"])
+                        ?.takeIf { it.startsWith("http", true) } ?: Config.stationLogo(m["group-title"] ?: "Khác"),
                     start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
                     headers = headers,

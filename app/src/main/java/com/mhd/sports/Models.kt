@@ -25,6 +25,17 @@ object Config {
         BuiltinStation("TRUYỀN HÌNH VIỆT NAM", "https://iptv-org.github.io/iptv/countries/vn.m3u")
     )
 
+    /**
+     * Logo nhà đài (tuỳ chọn) khi nguồn M3U không ghi sẵn thuộc tính `group-logo="..."`.
+     * Khoá = tên nhà đài (chính là `group-title` trong M3U), không phân biệt hoa thường.
+     * Ví dụ: "chuối chiên tv" to "https://.../chuoichien.png"
+     * Nhà đài không có logo sẽ hiện chữ cái đầu trong hình tròn.
+     */
+    val STATION_LOGOS: Map<String, String> = mapOf()
+
+    fun stationLogo(name: String): String? =
+        STATION_LOGOS.entries.firstOrNull { it.key.trim().equals(name.trim(), ignoreCase = true) }?.value
+
     private val URL_IN_TEXT = Regex("""https?://\S+""", RegexOption.IGNORE_CASE)
 
     /** Không để lộ link nguồn trong thông báo lỗi trên màn hình. */
