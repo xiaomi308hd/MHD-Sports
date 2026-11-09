@@ -1,3 +1,4 @@
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,37 +7,54 @@ plugins {
 android {
     namespace = "com.mhd.sports"
     compileSdk = 34
+
     signingConfigs {
-        // Khoá cố định: mọi bản build cùng chữ ký nên cài đè (cập nhật) được.
-        // Dùng cá nhân thì để vậy; muốn phát hành công khai hãy đổi sang keystore riêng + GitHub Secrets.
         create("release") {
-            storeFile = file("sportsplayer.jks")
-            storePassword = "sportsplayer"
-            keyAlias = "sportsplayer"
-            keyPassword = "sportsplayer"
+            storeFile = rootProject.file("mhd.jks")
+
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+                ?: error("Missing KEYSTORE_PASSWORD")
+
+            keyAlias = System.getenv("KEY_ALIAS")
+                ?: error("Missing KEY_ALIAS")
+
+            keyPassword = System.getenv("KEY_PASSWORD")
+                ?: error("Missing KEY_PASSWORD")
         }
     }
+
     defaultConfig {
         applicationId = "com.mhd.sports"
-        minSdk = 21          // chạy được cả điện thoại lẫn TV Android 5.0+
+        minSdk = 21
         targetSdk = 34
-        // CI truyền -PversionCode=<số lần build> để app so sánh với bản mới nhất trên GitHub
-        val code = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+
+        val code = (project.findProperty("versionCode") as String?)
+            ?.toIntOrNull() ?: 1
+
         versionCode = code
         versionName = "1.$code"
     }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
-    lint { abortOnError = false; checkReleaseBuilds = false }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {
