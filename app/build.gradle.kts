@@ -40,6 +40,7 @@ android {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file("sportsplayer.jks")
+                storeType = "PKCS12"
                 storePassword = signingStorePassword
                 keyAlias = signingKeyAlias
                 keyPassword = signingKeyPassword
