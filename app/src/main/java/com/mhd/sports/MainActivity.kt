@@ -248,7 +248,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stationChip(name: String, logo: String?, selected: Boolean): View {
-        val size = dp(if (compact) 34 else 44)
+        val size = dp(if (compact) 40 else 52)
         val chip = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             isFocusable = true; isClickable = true
@@ -266,9 +266,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val img = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            // Logo vuông (vd 512x512) phủ kín vòng tròn, không chừa viền.
+            scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
-            setPadding(dp(3), dp(3), dp(3), dp(3))
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
             Glass.clipRound(this, size / resources.displayMetrics.density / 2f)
         }
