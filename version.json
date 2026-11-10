@@ -1,6 +1,6 @@
 {
-  "versionCode": 116,
-  "versionName": "1.116",
-  "apkUrl": "https://github.com/xiaomi308hd/MHD-Sports/releases/download/build-116/app-release.apk",
-  "notes": "Add files via upload"
+  "versionCode": 117,
+  "versionName": "1.117",
+  "apkUrl": "https://github.com/xiaomi308hd/MHD-Sports/releases/download/build-117/app-release.apk",
+  "notes": "Delete Updater.kt"
 }
