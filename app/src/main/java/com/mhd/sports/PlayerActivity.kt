@@ -117,112 +117,40 @@ class PlayerActivity : AppCompatActivity() {
         val url = intent.getStringExtra("url") ?: run { finish(); return }
         val name = intent.getStringExtra("name") ?: ""
 
-        // ---- Giao diện trình phát theo mẫu MHD Sports: tiêu đề, thông số, video, chọn chất lượng ----
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = Glass.glass(this@PlayerActivity, 18f, tint = 0xFF151B27.toInt(),
-                stroke = 0x33FFFFFF, swDp = 1f, sheen = 0x08FFFFFF)
-            clipToOutline = true
-        }
-
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(8))
-            background = android.graphics.drawable.ColorDrawable(0xFF151B27.toInt())
-        }
-        val titleRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        val tvName = TextView(this).apply {
-            text = name
-            setTextColor(0xFFF4F6FA.toInt())
-            textSize = 16f
-            setTypeface(typeface, Typeface.BOLD)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        titleRow.addView(tvName, LinearLayout.LayoutParams(0, WRAP, 1f))
-        val live = TextView(this).apply {
-            text = "LIVE"
-            setTextColor(0xFFFF7777.toInt())
-            textSize = 11f
-            setTypeface(typeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(dp(9), dp(4), dp(9), dp(4))
-            background = Glass.glass(this@PlayerActivity, 12f, tint = 0x553D2029,
-                stroke = 0x664B2832, swDp = 1f, sheen = 0x11FFFFFF)
-        }
-        titleRow.addView(live)
-        header.addView(titleRow, LinearLayout.LayoutParams(MATCH, WRAP))
-
-        val statsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        tvRes = statChip("1920×1080").apply {
-            setTextColor(0xFF24D98B.toInt())
-            background = Glass.glass(this@PlayerActivity, 13f, tint = 0x3320B77A, stroke = 0x3320B77A)
-        }
-        tvFps = statChip("-- fps")
-        tvSpeed = statChip("Tải -- KB/s")
-        listOf(tvRes, tvFps, tvSpeed).forEachIndexed { i, chip ->
-            statsRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also {
-                if (i > 0) it.leftMargin = dp(7)
-            })
-        }
-        streamBox = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        statsRow.addView(streamBox, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(7) })
-        header.addView(statsRow)
-        root.addView(header, LinearLayout.LayoutParams(MATCH, WRAP))
-
-        val videoFrame = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
+        // ---- giao diện: video + thanh thông tin kính phía trên ----
+        val root = FrameLayout(this)
         view = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            setKeepContentOnPlayerReset(true)
-            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-            useController = true
+            setKeepContentOnPlayerReset(true)                       // không chớp đen khi kết nối lại
+            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)      // luôn hiện vòng xoay khi đang đệm
         }
-        videoFrame.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
 
-        val sourceBadge = TextView(this).apply {
-            text = origin(url)?.removePrefix("https://")?.removePrefix("http://") ?: "LIVE STREAM"
-            setTextColor(0xFFF4F4F4.toInt())
-            textSize = 10f
-            setPadding(dp(9), dp(5), dp(9), dp(5))
-            background = Glass.glass(this@PlayerActivity, 14f, tint = 0xCC252A34.toInt(),
-                stroke = 0x55FFFFFF, swDp = 1f, sheen = 0x22FFFFFF)
-            maxLines = 1
-        }
-        videoFrame.addView(sourceBadge, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.LEFT)
-            .also { it.setMargins(dp(10), 0, 0, dp(9)) })
-        root.addView(videoFrame, LinearLayout.LayoutParams(MATCH, 0, 1f))
-
-        val qualityBar = LinearLayout(this).apply {
+        val bar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = android.graphics.drawable.ColorDrawable(0xFF151B27.toInt())
+            background = Glass.glass(this@PlayerActivity, 20f, tint = 0x99000000.toInt())
+            setPadding(dp(18), dp(10), dp(10), dp(10))
         }
-        fun qualityChip(label: String, selected: Boolean = false): TextView =
-            TextView(this).apply {
-                text = label
-                textSize = 12f
-                setTypeface(typeface, Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) 0xFF20D58A.toInt() else 0xFFE5E9F0.toInt())
-                setPadding(dp(12), dp(6), dp(12), dp(6))
-                background = Glass.glass(this@PlayerActivity, 14f,
-                    tint = if (selected) 0x3320B77A else 0x333B4555,
-                    stroke = if (selected) 0x5530D995 else 0x223B4555,
-                    swDp = 1f, sheen = 0x11FFFFFF)
-            }
-        listOf("Auto", "HD1", "HD2", "FHD").forEachIndexed { i, label ->
-            qualityBar.addView(qualityChip(label, i == 0),
-                LinearLayout.LayoutParams(WRAP, WRAP).also { if (i > 0) it.leftMargin = dp(7) })
+        val tvName = TextView(this).apply {
+            text = name; setTextColor(Color.WHITE); textSize = 16f
+            setTypeface(typeface, Typeface.BOLD); maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        root.addView(qualityBar, LinearLayout.LayoutParams(MATCH, WRAP))
+        bar.addView(tvName, LinearLayout.LayoutParams(0, WRAP, 1f))
+        tvRes = statChip("-- × --")
+        tvFps = statChip("-- fps")
+        tvSpeed = statChip("Tải -- KB/s")
+        streamBox = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        bar.addView(streamBox, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(8) })
+        listOf(tvRes, tvFps, tvSpeed).forEach {
+            bar.addView(it, LinearLayout.LayoutParams(WRAP, WRAP).also { p -> p.leftMargin = dp(8) })
+        }
+        root.addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP)
+            .also { it.setMargins(dp(16), dp(12), dp(16), 0) })
+        // thanh thông tin hiện/ẩn cùng bộ nút điều khiển (bấm OK/chạm màn hình để hiện)
+        view.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
+            bar.visibility = if (v == View.VISIBLE) View.VISIBLE else View.GONE
+        })
         setContentView(root)
 
         @Suppress("UNCHECKED_CAST", "DEPRECATION")
@@ -242,14 +170,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun statChip(text: String) = TextView(this).apply {
-        this.text = text
-        setTextColor(0xFFE8ECF3.toInt())
-        textSize = 11f
-        setTypeface(typeface, Typeface.BOLD)
-        gravity = Gravity.CENTER
-        setPadding(dp(9), dp(5), dp(9), dp(5))
-        background = Glass.glass(this@PlayerActivity, 13f, tint = 0x333B4555,
-            stroke = 0x223B4555, swDp = 1f, sheen = 0x11FFFFFF)
+        this.text = text; setTextColor(Color.WHITE); textSize = 13f
+        setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        background = Glass.glass(this@PlayerActivity, 14f, tint = 0x40FFFFFF)
     }
 
     private fun updateStats() {
