@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pillUpdate: TextView
     private var lastUpdateCheckAt = 0L
     private val sportChips = mutableMapOf<Sport?, TextView>()
+    private lateinit var liveChip: TextView
     private lateinit var stationRow: LinearLayout
     private lateinit var stationScroll: HorizontalScrollView
     private var stationSig = ""
@@ -180,6 +181,19 @@ class MainActivity : AppCompatActivity() {
             sportRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).also { it.setMargins(dp(6), 0, dp(6), 0) })
         }
         addSportChip(null, "Tất cả")
+        // Bộ lọc trận đang phát trực tiếp, đặt ngay cạnh nút "Tất cả".
+        liveChip = Glass.chip(this, "Trực tiếp", if (compact) 15f else 18f,
+            hPadDp = if (compact) 16f else 24f, vPadDp = if (compact) 10f else 13f
+        ).apply {
+            setOnClickListener {
+                prefs.edit().putBoolean("live_only", !prefs.getBoolean("live_only", false)).apply()
+                styleSportChips()
+                render(true)
+            }
+        }
+        sportRow.addView(liveChip, LinearLayout.LayoutParams(WRAP, WRAP).also {
+            it.setMargins(dp(6), 0, dp(6), 0)
+        })
         Sport.values().forEach { addSportChip(it, it.label) }
         col.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -317,6 +331,8 @@ class MainActivity : AppCompatActivity() {
         sportChips.forEach { (sport, chip) ->
             chip.background = if (sport == cur) Glass.accentButton(this) else Glass.button(this)
         }
+        liveChip.background = if (prefs.getBoolean("live_only", false))
+            Glass.accentButton(this) else Glass.button(this)
     }
 
     private fun iconButton(res: Int, desc: String, onClick: () -> Unit) = ImageView(this).apply {
@@ -434,12 +450,14 @@ class MainActivity : AppCompatActivity() {
         val filter = prefs.getBoolean("filter", true)
         val hid = hidden()
         val sport = currentSport()
+        val liveOnly = prefs.getBoolean("live_only", false)
         val station = currentStation()
         val items = all.map { it to it.state(now) }
             .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
+            .filter { !liveOnly || it.second == State.LIVE }
             .filter { sport == null || it.first.sport == sport }
             .filter { station == null || it.first.stationKey == station }
-        val sig = filter.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
+        val sig = filter.toString() + liveOnly.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) return
         lastSig = sig
@@ -447,6 +465,7 @@ class MainActivity : AppCompatActivity() {
 
         content.removeAllViews(); adapters.clear()
         tvStatus.text = when {
+            items.isEmpty() && liveOnly -> "Hiện chưa có trận đang trực tiếp phù hợp với bộ lọc. Bấm “Trực tiếp” lần nữa để xem tất cả."
             items.isEmpty() && station != null && sport != null -> "${station} chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” hoặc bấm lại nhà đài để bỏ lọc."
             items.isEmpty() && station != null -> "$station hiện chưa có trận/kênh. Bấm lại logo nhà đài để xem tất cả."
             items.isEmpty() && sport != null -> "Chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” để xem đầy đủ."
