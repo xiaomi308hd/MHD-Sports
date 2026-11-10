@@ -72,8 +72,14 @@ data class Channel(
     val groupLogo: String? = null,
     /** true: logo là logo giải/đội (vuông) => hiển thị nguyên hình, không cắt. */
     val logoFit: Boolean = false,
-    val sport: Sport? = null
+    val sport: Sport? = null,
+    /** Nhà đài (API nguồn) của mục này, ví dụ "Chuối Chiên TV". Rỗng = dùng tên nhóm làm nhà đài như bản cũ. */
+    val station: String = "",
+    val stationLogo: String? = null
 ) {
+    /** Khoá nhà đài dùng cho hàng logo và bộ lọc: nhà đài khai báo, nếu không có thì tên nhóm. */
+    val stationKey: String get() = station.ifBlank { group }
+
     private enum class Provider { LIVE, ENDED, UPCOMING, UNKNOWN }
 
     private fun providerState(): Provider {

@@ -236,7 +236,7 @@ class MainActivity : AppCompatActivity() {
     /** Nhà đài đang chọn (null = tất cả). Bỏ qua nếu nhà đài đó không còn trong dữ liệu. */
     private fun currentStation(): String? {
         val name = prefs.getString("station", "") ?: ""
-        return name.takeIf { it.isNotBlank() && all.any { c -> c.group == it } }
+        return name.takeIf { it.isNotBlank() && all.any { c -> c.stationKey == it } }
     }
 
     private fun selectStation(name: String?) {
@@ -294,8 +294,12 @@ class MainActivity : AppCompatActivity() {
     /** Dựng lại hàng nhà đài từ dữ liệu; chỉ dựng khi danh sách / logo / lựa chọn thay đổi. */
     private fun buildStationRow() {
         val hid = hidden()
-        val names = orderedGroups(all.map { it.group }.distinct()).filter { it !in hid }
-        val logos = names.associateWith { g -> all.firstOrNull { it.group == g && !it.groupLogo.isNullOrBlank() }?.groupLogo }
+        // Mỗi nhà đài (API nguồn) một nút, theo thứ tự xuất hiện trong dữ liệu; bỏ nhà đài chỉ còn nhóm giải đang ẩn.
+        val names = all.filter { it.group !in hid }.map { it.stationKey }.distinct()
+        val logos = names.associateWith { s ->
+            all.firstOrNull { it.stationKey == s && !it.stationLogo.isNullOrBlank() }?.stationLogo
+                ?: all.firstOrNull { it.stationKey == s && !it.groupLogo.isNullOrBlank() && it.station.isBlank() }?.groupLogo
+        }
         val cur = currentStation()
         val sig = names.joinToString("|") { it + "=" + logos[it] } + "#" + cur
         if (sig == stationSig) return
@@ -434,7 +438,7 @@ class MainActivity : AppCompatActivity() {
         val items = all.map { it to it.state(now) }
             .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
             .filter { sport == null || it.first.sport == sport }
-            .filter { station == null || it.first.group == station }
+            .filter { station == null || it.first.stationKey == station }
         val sig = filter.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) return
@@ -447,7 +451,7 @@ class MainActivity : AppCompatActivity() {
             items.isEmpty() && station != null -> "$station hiện chưa có trận/kênh. Bấm lại logo nhà đài để xem tất cả."
             items.isEmpty() && sport != null -> "Chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” để xem đầy đủ."
             items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
-            else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} nhà đài" +
+            else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} giải/nhóm · ${items.map { it.first.stationKey }.distinct().size} nhà đài" +
                 if (hid.isNotEmpty()) " · ${hid.size} nhóm đang ẩn" else ""
         }
         val rank = mapOf(State.LIVE to 0, State.ALWAYS to 1, State.UPCOMING to 2, State.ENDED to 3)

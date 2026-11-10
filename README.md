@@ -78,6 +78,9 @@ Với API Chuối Chiên, ứng dụng đọc `matches[]`, tên hai đội, gi�
 - Đổi sang luồng chất lượng thấp hơn thủ công vẫn dùng được qua các nút trên thanh phía trên trình phát.
 
 ## Lọc theo nhà đài (logo + tên)
-- Hàng logo + tên nhà đài nằm trên hàng lọc bộ môn, căn giữa và dàn đều; thêm nhà đài mới vào nguồn thì tự có thêm nút. Bấm một nhà đài để chỉ xem trận của nhà đài đó, bấm lại để xem tất cả. Lựa chọn được nhớ cho lần sau.
-- Tên nhà đài lấy từ `group-title` trong M3U. Logo nhà đài lấy từ thuộc tính `group-logo="https://..."` trên dòng `#EXTINF` (chỉ cần ghi ở một dòng của nhà đài đó), hoặc khai báo trong `Config.STATION_LOGOS` (Models.kt). Không có logo thì hiện chữ cái đầu.
+- Hàng logo + tên **nhà đài** (Chuối Chiên TV, Gà Vàng TV...) nằm trên hàng lọc bộ môn, căn giữa và dàn đều; thêm nhà đài mới vào `config.json` của `sport-api` thì tự có thêm nút. Mặc định (chưa chọn) hiển thị toàn bộ danh sách. Bấm một nhà đài để chỉ xem các giải và trận lấy từ API của nhà đài đó, bấm lại để xem tất cả. Lựa chọn được nhớ cho lần sau.
+- Nhóm hiển thị bên dưới vẫn là **tên giải** (`group-title`); nhà đài là thuộc tính riêng.
+- Nhà đài của mỗi dòng M3U: `x-source-name="Chuối Chiên TV"` (hoặc `x-source`). Logo: `x-source-logo="..."` (URL đầy đủ, hoặc đường dẫn tương đối so với link M3U, ví dụ `logos/chuoichientv.png`), hoặc khai báo trong `Config.STATION_LOGOS` (Models.kt). Không có logo thì hiện chữ cái đầu.
+- M3U cũ không có `x-source-*` vẫn chạy như trước (hàng nút theo tên nhóm). Nguồn `index.json` nhiều nhà đài cũng không đổi.
+- Cùng một trận có ở hai nhà đài sẽ là hai thẻ riêng (mỗi nhà đài giữ luồng của mình) khi xem "Tất cả".
 - Hàng lọc bộ môn đã được tăng cỡ chữ và nút.
