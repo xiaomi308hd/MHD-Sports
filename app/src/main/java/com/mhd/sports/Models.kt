@@ -115,4 +115,15 @@ data class Channel(
             Provider.UNKNOWN -> timeBased ?: State.ALWAYS
         }
     }
+
+    /** Trận đã phát sóng xong và còn luồng để xem lại (không tính trận bị huỷ / hoãn). */
+    fun canReplay(now: Long): Boolean {
+        if (state(now) != State.ENDED) return false
+        val s = providerStatus?.trim()?.lowercase()?.replace(' ', '_')?.replace('-', '_')
+        if (s in setOf("cancelled", "canceled", "abandoned")) return false
+        // chỉ xem lại trận kết thúc trong vòng RETAIN_HOURS giờ qua
+        val e = start?.let { st -> end ?: (st + Config.DEFAULT_DURATION_MIN * 60_000L) }
+        if (e != null && now > e + ReplayStore.RETAIN_HOURS * 3_600_000L) return false
+        return streams.isNotEmpty() || url.isNotBlank()
+    }
 }

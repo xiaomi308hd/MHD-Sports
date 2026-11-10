@@ -20,6 +20,8 @@ import java.util.Locale
 
 class ChannelAdapter(
     private val items: List<Pair<Channel, State>>,
+    /** true: đang ở mục "Xem lại" => trận đã xong hiện nhãn XEM LẠI thay vì ĐÃ XONG. */
+    private val replay: Boolean = false,
     private val onClick: (Channel) -> Unit
 ) : RecyclerView.Adapter<ChannelAdapter.VH>() {
 
@@ -105,7 +107,7 @@ class ChannelAdapter(
                 h.badge.visibility = View.VISIBLE
             }
             State.ENDED -> {
-                bg.setColor(0xB3555555.toInt()); h.badge.text = "ĐÃ XONG"; h.badge.visibility = View.VISIBLE
+                bg.setColor(0xB3555555.toInt()); h.badge.text = if (replay) "XEM LẠI" else "ĐÃ XONG"; h.badge.visibility = View.VISIBLE
             }
             State.ALWAYS -> h.badge.visibility = View.GONE
         }

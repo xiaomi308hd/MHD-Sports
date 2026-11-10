@@ -26,10 +26,18 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private var lastUpdateCheckAt = 0L
     private val sportChips = mutableMapOf<Sport?, TextView>()
     private lateinit var liveChip: TextView
+    private lateinit var replayChip: TextView
     private lateinit var stationRow: LinearLayout
     private lateinit var stationScroll: HorizontalScrollView
     private var stationSig = ""
@@ -89,6 +98,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("p", MODE_PRIVATE)
+        // Tự lưu lịch trận trong nền (15 phút/lần, kể cả khi đóng app) để mục "Xem lại" không bị hụt trận.
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "replay_sync", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+        )
         // Xoá link người dùng đã lưu từ các bản cũ (tính năng nhập link đã bị gỡ).
         getSharedPreferences("links", MODE_PRIVATE).edit().clear().apply()
 
@@ -186,12 +202,28 @@ class MainActivity : AppCompatActivity() {
             hPadDp = if (compact) 16f else 24f, vPadDp = if (compact) 10f else 13f
         ).apply {
             setOnClickListener {
-                prefs.edit().putBoolean("live_only", !prefs.getBoolean("live_only", false)).apply()
+                // "Trực tiếp" và "Xem lại" loại trừ nhau
+                prefs.edit().putBoolean("live_only", !prefs.getBoolean("live_only", false))
+                    .putBoolean("replay_only", false).apply()
                 styleSportChips()
                 render(true)
             }
         }
         sportRow.addView(liveChip, LinearLayout.LayoutParams(WRAP, WRAP).also {
+            it.setMargins(dp(6), 0, dp(6), 0)
+        })
+        // Mục "Xem lại": chỉ hiện các trận đã phát sóng xong (ở màn hình chính các trận này vẫn ẩn).
+        replayChip = Glass.chip(this, "Xem lại", if (compact) 15f else 18f,
+            hPadDp = if (compact) 16f else 24f, vPadDp = if (compact) 10f else 13f
+        ).apply {
+            setOnClickListener {
+                prefs.edit().putBoolean("replay_only", !prefs.getBoolean("replay_only", false))
+                    .putBoolean("live_only", false).apply()
+                styleSportChips()
+                render(true)
+            }
+        }
+        sportRow.addView(replayChip, LinearLayout.LayoutParams(WRAP, WRAP).also {
             it.setMargins(dp(6), 0, dp(6), 0)
         })
         Sport.values().forEach { addSportChip(it, it.label) }
@@ -333,6 +365,8 @@ class MainActivity : AppCompatActivity() {
         }
         liveChip.background = if (prefs.getBoolean("live_only", false))
             Glass.accentButton(this) else Glass.button(this)
+        replayChip.background = if (prefs.getBoolean("replay_only", false))
+            Glass.accentButton(this) else Glass.button(this)
     }
 
     private fun iconButton(res: Int, desc: String, onClick: () -> Unit) = ImageView(this).apply {
@@ -412,7 +446,8 @@ class MainActivity : AppCompatActivity() {
             try {
                 val result = SourceLoader.loadCatalog(url)
                 if (result.channels.isEmpty()) error("Nguồn không có trận đấu hoặc kênh phát hợp lệ")
-                all = result.channels
+                // Gộp thêm các trận đã xong trong 24 giờ qua mà nguồn đã xoá (lưu trong máy) để mục "Xem lại" vẫn còn
+                all = withContext(Dispatchers.IO) { ReplayStore.merge(applicationContext, result.channels, System.currentTimeMillis()) }
                 loadedStationNames = result.stationNames
                 lastDataRefreshAt = System.currentTimeMillis()
                 lastSig = ""
@@ -451,13 +486,16 @@ class MainActivity : AppCompatActivity() {
         val hid = hidden()
         val sport = currentSport()
         val liveOnly = prefs.getBoolean("live_only", false)
+        val replay = prefs.getBoolean("replay_only", false)
         val station = currentStation()
         val items = all.map { it to it.state(now) }
-            .filter { (!filter || it.second != State.ENDED) && it.first.group !in hid }
+            .filter { it.first.group !in hid }
+            // Xem lại: chỉ trận đã xong (bỏ qua bộ lọc giờ). Các mục khác: ẩn trận đã xong như cũ.
+            .filter { if (replay) it.first.canReplay(now) else (!filter || it.second != State.ENDED) }
             .filter { !liveOnly || it.second == State.LIVE }
             .filter { sport == null || it.first.sport == sport }
             .filter { station == null || it.first.stationKey == station }
-        val sig = filter.toString() + liveOnly.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
+        val sig = filter.toString() + liveOnly.toString() + replay.toString() + (sport?.name ?: "") + (station ?: "") + hid.sorted().joinToString(",") + "#" +
             items.joinToString("|") { it.first.name + it.first.url + it.first.detail + it.second }
         if (!force && sig == lastSig) return
         lastSig = sig
@@ -465,11 +503,13 @@ class MainActivity : AppCompatActivity() {
 
         content.removeAllViews(); adapters.clear()
         tvStatus.text = when {
+            items.isEmpty() && replay -> "Chưa có trận nào đã phát sóng xong để xem lại. Bấm “Xem lại” lần nữa để quay về danh sách chính."
             items.isEmpty() && liveOnly -> "Hiện chưa có trận đang trực tiếp phù hợp với bộ lọc. Bấm “Trực tiếp” lần nữa để xem tất cả."
             items.isEmpty() && station != null && sport != null -> "${station} chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” hoặc bấm lại nhà đài để bỏ lọc."
             items.isEmpty() && station != null -> "$station hiện chưa có trận/kênh. Bấm lại logo nhà đài để xem tất cả."
             items.isEmpty() && sport != null -> "Chưa có trận/kênh môn ${sport.label}. Chọn “Tất cả” để xem đầy đủ."
             items.isEmpty() && hid.isNotEmpty() -> "Tất cả nhóm đang ẩn. Mở “Sắp xếp” để hiện lại."
+            replay -> "Xem lại: ${items.size} trận đã phát sóng · ${items.map { it.first.group }.distinct().size} giải/nhóm"
             else -> "Đang hiển thị ${items.size}/${all.size} trận/kênh · ${items.map { it.first.group }.distinct().size} giải/nhóm · ${items.map { it.first.stationKey }.distinct().size} nhà đài" +
                 if (hid.isNotEmpty()) " · ${hid.size} nhóm đang ẩn" else ""
         }
@@ -498,10 +538,12 @@ class MainActivity : AppCompatActivity() {
             })
             content.addView(head)
 
-            val sorted = list.sortedWith(
+            // Xem lại: trận mới kết thúc xếp trước; danh sách chính: như cũ
+            val sorted = if (replay) list.sortedByDescending { it.first.start ?: 0L }
+            else list.sortedWith(
                 compareBy<Pair<Channel, State>>({ rank[it.second]!! }, { it.first.start ?: 0L })
             )
-            val ad = ChannelAdapter(sorted) { openPlayer(it) }
+            val ad = ChannelAdapter(sorted, replay) { openPlayer(it) }
             adapters += ad
             content.addView(RecyclerView(this).apply {
                 layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
