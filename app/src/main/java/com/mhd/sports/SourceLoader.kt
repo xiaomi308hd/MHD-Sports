@@ -151,7 +151,7 @@ object SourceLoader {
     // Bỏ các nhãn đó khi so tên => "(KOBE)" và "(HD KOBE)" là cùng một trận / cùng một BLV.
     private val BRACKET = Regex("""[\[(]([^\])\[(]*)[\])]""")
     private val MOD_TOKEN = Regex(
-        """(?i)(?<![\p{L}\p{N}])(http[-_ ]?flv|flv\s*\d*|hls\s*\d*|m3u8\s*\d*|geo|fhd|full[ -]?hd|hd|sd|4k|1080p?|720p?|480p?)(?![\p{L}\p{N}])"""
+        """(?i)(?<![\p{L}\p{N}])(http[-_ ]?flv|flv\s*\d*|hls\s*\d*|m3u8\s*\d*|geo|fhd\s*\d*|full[ -]?hd|hd\s*\d*|sd|4k|1080p?|720p?|480p?)(?![\p{L}\p{N}])"""
     )
     private val DIACRITICS = Regex("""\p{M}+""")
     private val SPACES = Regex("""\s+""")
@@ -198,7 +198,7 @@ object SourceLoader {
 
     private val Q_4K = Regex("""(?i)(?<![a-z0-9])(4k|2160p?|uhd)(?![a-z0-9])""")
     private val Q_FHD = Regex("""(?i)(?<![a-z0-9])(fhd|full[ -]?hd|1080p?)(?![a-z0-9])""")
-    private val Q_HD = Regex("""(?i)(?<![a-z])(hd|720p?)""")
+    private val Q_HD = Regex("""(?i)(?<![a-z])(hd\s*\d*|720p?)""")
     private val Q_SD = Regex("""(?i)(?<![a-z0-9])(sd|576p?|480p?|360p?|240p?)(?![a-z])""")
 
     /** Điểm độ phân giải suy từ nhãn: 4K > FHD/1080 > HD/720 > không nhãn > SD. Điểm cao được thử trước. */
@@ -214,7 +214,33 @@ object SourceLoader {
     private fun splitTags(raw: String): Pair<String, Tags> {
         var format = ""
         val mods = mutableListOf<String>()
-        val replaced = BRACKET.replace(raw) { m ->
+
+        // M3U thể thao thường ghi tên theo dạng:
+        // "Đội A vs Đội B | ngày giờ | tỷ số | tên BLV | HD1".
+        // Tên BLV/chất lượng là thông tin của luồng, không phải tên trận.
+        // Tách chúng trước khi gom để trang chủ chỉ còn một thẻ cho mỗi trận.
+        var sourceName = raw
+        val parts = raw.split('|').map { it.trim() }
+        if (parts.size >= 2) {
+            val tail = parts.last()
+            val streamTail = Regex(
+                "(?i)^(?:HD\\s*\\d*|FHD\\s*\\d*|FULL[ -]?HD|SD|4K|UHD|2160P?|1080P?|720P?|576P?|480P?|360P?|HLS\\s*\\d*|M3U8\\s*\\d*|FLV\\s*\\d*)(?:\\s+(?:HLS|M3U8|FLV))?$"
+            ).matches(tail)
+            if (streamTail) {
+                val baseParts = parts.dropLast(if (parts.size >= 4) 2 else 1)
+                sourceName = baseParts.joinToString(" | ").trim().ifBlank { raw }
+                val tokens = MOD_TOKEN.findAll(tail).map { it.value }.toList()
+                tokens.forEach { token ->
+                    val t = token.lowercase().replace(Regex("[\\s_-]"), "")
+                    when {
+                        "flv" in t || "hls" in t || "m3u8" in t -> if (format.isEmpty()) format = tagLabel(token)
+                        else -> mods += t.uppercase()
+                    }
+                }
+            }
+        }
+
+        val replaced = BRACKET.replace(sourceName) { m ->
             val inner = m.groupValues[1]
             val tokens = MOD_TOKEN.findAll(inner).map { it.value }.toList()
             if (tokens.isEmpty()) return@replace m.value
@@ -280,7 +306,9 @@ object SourceLoader {
             } else {
                 val raw = b.members.map { m ->
                     val fmt = m.tags.format.ifEmpty { labelFromUrl(m.ch.url) }
-                    Variant((m.tags.mods + fmt).filter { it.isNotBlank() }.joinToString(" "),
+                    val qualityTags = m.tags.mods.filter { Regex("(?i)^(?:HD\\s*\\d*|FHD\\s*\\d*|SD|4K|UHD|\\d{3,4}P?)$").matches(it) }
+                    val displayTags = (qualityTags.ifEmpty { listOf(fmt).filter { it.isNotBlank() } } + m.tags.mods.filter { it == "GEO" })
+                    Variant(displayTags.joinToString(" "),
                         m.ch.url, m.ch.headers, geoRank(m.tags.mods), qualityScore(m.tags.mods.joinToString(" ")), labelRank(fmt))
                 }.filter { it.url.isNotBlank() }.distinctBy { it.url }
                 // Độ phân giải cao nhất thử trước; cùng độ phân giải thì HLS trước FLV; GEO sau cùng.
