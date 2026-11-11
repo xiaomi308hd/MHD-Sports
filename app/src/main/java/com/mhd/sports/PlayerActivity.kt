@@ -24,6 +24,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.VideoSize
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -117,7 +118,7 @@ class PlayerActivity : AppCompatActivity() {
         val url = intent.getStringExtra("url") ?: run { finish(); return }
         val name = intent.getStringExtra("name") ?: ""
 
-        // ---- Full-screen player: thông tin phía trên, chọn luồng ở góc dưới bên phải ----
+        // ---- Full-screen player: thông tin phía trên, chọn luồng ở góc dưới bên trái ----
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
         view = PlayerView(this).apply {
@@ -126,7 +127,7 @@ class PlayerActivity : AppCompatActivity() {
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             useController = true
             setControllerShowTimeoutMs(1000)
-            setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+            setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT)
         }
         root.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
 
@@ -177,21 +178,9 @@ class PlayerActivity : AppCompatActivity() {
         }
         header.addView(statsRow)
         root.addView(header, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP)
-            .also { it.setMargins(dp(12), dp(10), dp(12), 0) })
+            .also { it.setMargins(dp(12), 0, dp(12), 0) })   // sát mép trên màn hình (có thể che bảng tỉ số vì chỉ hiện ngắn)
 
-        val sourceBadge = TextView(this).apply {
-            text = origin(url)?.removePrefix("https://")?.removePrefix("http://") ?: "LIVE STREAM"
-            setTextColor(0xFFF4F4F4.toInt())
-            textSize = 10f
-            setPadding(dp(9), dp(5), dp(9), dp(5))
-            background = Glass.glass(this@PlayerActivity, 14f, tint = 0xCC252A34.toInt(),
-                stroke = 0x55FFFFFF, swDp = 1f, sheen = 0x22FFFFFF)
-            maxLines = 1
-        }
-        root.addView(sourceBadge, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.LEFT)
-            .also { it.setMargins(dp(14), 0, 0, dp(12)) })
-
-        // Bốn nút chọn nguồn thực tế đặt ở góc dưới bên phải.
+        // Bốn nút chọn nguồn thực tế đặt ở góc dưới bên trái (bên phải bị nút cài đặt của trình phát che).
         streamBox = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -199,14 +188,14 @@ class PlayerActivity : AppCompatActivity() {
             background = Glass.glass(this@PlayerActivity, 17f, tint = 0xD9161D29.toInt(),
                 stroke = 0x22FFFFFF, swDp = 1f, sheen = 0x10FFFFFF)
         }
-        root.addView(streamBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.RIGHT)
-            .also { it.setMargins(0, 0, dp(14), dp(12)) })
+        // Lề trái chừa chỗ cho đồng hồ thời gian của trình phát (-00:01 · 00:12) để không bị che.
+        root.addView(streamBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.LEFT)
+            .also { it.setMargins(dp(180), 0, 0, dp(12)) })
 
         view.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             val show = visibility == View.VISIBLE
             header.visibility = if (show) View.VISIBLE else View.GONE
             streamBox.visibility = if (show) View.VISIBLE else View.GONE
-            sourceBadge.visibility = if (show) View.VISIBLE else View.GONE
         })
         setContentView(root)
         view.showController()
@@ -440,6 +429,16 @@ class PlayerActivity : AppCompatActivity() {
         view.player = p
         p.setVideoFrameMetadataListener(VideoFrameMetadataListener { _, _, _, _ -> frames.incrementAndGet() })
         p.addListener(object : Player.Listener {
+            // Luồng 720p / 1080p luôn hiển thị đúng tỉ lệ 16:9 (kể cả khi luồng khai báo tỉ lệ điểm ảnh lạ).
+            // Listener này đăng ký sau PlayerView nên giá trị 16:9 được áp dụng sau cùng.
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.height == 720 || videoSize.height == 1080) {
+                    view.findViewById<androidx.media3.ui.AspectRatioFrameLayout>(
+                        androidx.media3.ui.R.id.exo_content_frame
+                    )?.setAspectRatio(16f / 9f)
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 ui.removeCallbacks(stallWatch)
                 when (state) {
