@@ -52,24 +52,17 @@ object SourceLoader {
         if (parsed is JSONObject && parsed.optJSONArray("stations") != null) {
             val stations = parsed.optJSONArray("stations")!!
             val entries = mutableListOf<StationEntry>()
-            val declared = mutableSetOf<String>()
             for (i in 0 until stations.length()) {
                 val station = stations.optJSONObject(i) ?: continue
                 val source = station.optString("url").trim()
                 if (source.isBlank()) continue
                 val stationUrl = resolveRelative(root.finalUrl, source)
-                declared += normalizeUrl(stationUrl)
                 if (!station.optBoolean("enabled", true)) continue
                 val stationName = station.optString("name").ifBlank { station.optString("id") }
                     .ifBlank { "Nhà đài ${i + 1}" }
                 val stationLogo = station.optString("logo").takeIf { it.startsWith("http") }
                 entries += StationEntry(stationName, stationLogo, stationUrl)
             }
-            // Gộp luồng có sẵn trong ứng dụng (bỏ qua nếu index.json đã khai báo, kể cả đang tắt)
-            Config.BUILTIN_STATIONS.forEach { b ->
-                if (normalizeUrl(b.url) !in declared) entries += StationEntry(b.name, b.logo, b.url)
-            }
-
             // Tải song song; một nhà đài lỗi không làm hỏng cả danh sách
             val outcomes = coroutineScope {
                 entries.map { e -> async { runCatching { loadStation(e) } } }.awaitAll()
@@ -118,8 +111,6 @@ object SourceLoader {
         val separator = if (url.contains("?")) "&" else "?"
         return url + separator + "_mhd_refresh=" + System.currentTimeMillis()
     }
-
-    private fun normalizeUrl(url: String): String = url.trim().substringBefore("#").trimEnd('/').lowercase()
 
     private fun resolveRelative(base: String, value: String): String =
         runCatching { URI(base).resolve(value).toString() }.getOrDefault(value)

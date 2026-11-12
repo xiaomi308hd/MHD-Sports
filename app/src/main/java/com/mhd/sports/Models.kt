@@ -1,8 +1,5 @@
 package com.mhd.sports
 
-/** Nhà đài có sẵn trong ứng dụng (tự gộp vào danh sách khi dùng nguồn mặc định). */
-data class BuiltinStation(val name: String, val url: String, val logo: String? = null)
-
 object Config {
     const val APP_NAME = "MHD Sports"
     const val APP_TAGLINE = "Trực tiếp thể thao"
@@ -15,15 +12,6 @@ object Config {
 
     const val DEFAULT_DURATION_MIN = 120
     const val DATA_REFRESH_MIN = 2
-
-    /**
-     * Luồng bổ sung có sẵn: danh sách kênh công khai của iptv-org (định dạng M3U).
-     * Chỉ được gộp khi dùng nguồn mặc định và chưa có trong index.json. Muốn bỏ thì xoá mục tương ứng.
-     */
-    val BUILTIN_STATIONS = listOf(
-        BuiltinStation("THỂ THAO QUỐC TẾ", "https://iptv-org.github.io/iptv/categories/sports.m3u"),
-        BuiltinStation("TRUYỀN HÌNH VIỆT NAM", "https://iptv-org.github.io/iptv/countries/vn.m3u")
-    )
 
     /**
      * Logo nhà đài (tuỳ chọn) khi nguồn M3U không ghi sẵn thuộc tính `group-logo="..."`.
