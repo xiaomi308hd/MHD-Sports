@@ -548,7 +548,7 @@ object SourceLoader {
                         end = timeOf(node.any("end", "end_time", "endTime", "stop")),
                         headers = jsonHeaders(node),
                         providerStatus = statusOf(node),
-                        sport = SportDetector.detect(node.str("sport", "sport_type"), rawName, node.str("group", "category", "league", "group_title"), group)
+                        sport = SportDetector.detectOrFootball(node.str("sport", "sport_type"), rawName, node.str("group", "category", "league", "group_title"), group)
                     )
                 } else {
                     val nextGroup = node.str("group_name", "group", "category", "name", "title") ?: group
@@ -600,7 +600,8 @@ object SourceLoader {
                     start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
                     headers = headers,
-                    sport = SportDetector.detect(rawName, m["group-title"]),
+                    sport = SportDetector.fromTag(m["x-sport"] ?: m["tvg-sport"] ?: m["sport"])
+                        ?: SportDetector.detectOrFootball(rawName, m["group-title"], m["x-league"]),
                     station = stationName,
                     stationLogo = stationLogo
                 )

@@ -7,7 +7,9 @@ enum class Sport(val label: String) {
     BASKETBALL("Bóng rổ"),
     VOLLEYBALL("Bóng chuyền"),
     TENNIS("Tennis"),
-    BADMINTON("Cầu lông")
+    BADMINTON("Cầu lông"),
+    BILLIARDS("Billiards"),
+    ESPORTS("E-Sports")
 }
 
 /** Đoán bộ môn từ tên giải/trận/kênh (bỏ dấu, không phân biệt hoa thường). */
@@ -37,16 +39,41 @@ object SportDetector {
         Sport.VOLLEYBALL to Regex("""\b(volleyball|volley|bong chuyen|vnl|fivb)\b"""),
         Sport.TENNIS to Regex("""\b(tennis|atp|wta|wimbledon|roland garros|davis cup|billie jean king|grand slam|us open|australian open|itf)\b"""),
         Sport.BADMINTON to Regex("""\b(badminton|cau long|bwf|all england|thomas cup|uber cup|sudirman)\b"""),
-        Sport.FOOTBALL to Regex("""\b(football|soccer|bong da|premier league|epl|la ?liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|uefa|fifa|world cup|v ?league|afc|copa|mls|j ?league|k ?league|fa cup|carabao|efl|nations league|ngoai hang|fc)\b""")
+        Sport.BILLIARDS to Regex("""\b(billiards?|bida|bi[ -]a|snooker|carom|three cushion|3 cushion|nine ball|eight ball|ten ball|[89] ?-?ball|10 ?-?ball|pool billiards?|wpa|uk pool)\b"""),
+        Sport.ESPORTS to Regex("""\b(esports?|e ?-?sports?|league of legends|lol|lck|lec|lcs|vcs|msi|dota ?2?|cs ?go|cs ?2|counter ?-?strike|valorant|vct|pubg|pmgc|mobile legends|mlbb|lien quan|aov|arena of valor|honor of kings|free fire|fortnite|overwatch|rainbow six|apex legends|starcraft|rocket league|tft|pgl|esl|iem|fifa online|ea fc online|fc online)\b"""),
+        Sport.FOOTBALL to Regex("""\b(football|soccer|bong da|premier league|epl|la ?liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|uefa|fifa|world cup|v ?league|afc|copa|mls|j ?league|k ?league|fa cup|carabao|efl|nations league|ngoai hang|giao huu|friendly|cup of nations|afcon|wk ?league|w ?league|futsal|fc|u ?\d{2})\b""")
     )
 
     private fun fold(t: String): String =
         Normalizer.normalize(t, Normalizer.Form.NFD).replace(MARKS, "")
             .replace('đ', 'd').replace('Đ', 'D').lowercase()
 
+    // Môn không có trong bộ lọc của app (cricket, bóng bầu dục, đua xe...): không đoán bừa là bóng đá.
+    private val OTHER_RE = Regex("""\b(cricket|ipl|t20|odi|bbl|psl|rugby|baseball|mlb|nfl|nhl|hockey|mma|ufc|boxing|golf|nascar|f1|formula 1|motogp|handball|table tennis|bong ban|darts|cycling|swimming)\b""")
+
     fun detect(vararg texts: String?): Sport? {
         val joined = fold(texts.filterNotNull().joinToString(" | "))
         if (joined.isBlank()) return null
         return RULES.firstOrNull { it.second.containsMatchIn(joined) }?.first
+    }
+
+    /**
+     * Link nguồn mới ghi tên giải bằng nhiều ngôn ngữ ("Nữ Mexico", "Giao Hữu Quốc Tế", "Aus Champ", "WK-League"...)
+     * nên chỉ dựa vào từ khoá sẽ bỏ sót phần lớn trận bóng đá và bộ lọc môn trở nên trống.
+     * Không nhận ra môn nào (và không phải môn ngoài danh sách) => coi là bóng đá, giống cách đọc nguồn JSON.
+     */
+    fun detectOrFootball(vararg texts: String?): Sport? {
+        detect(*texts)?.let { return it }
+        val joined = fold(texts.filterNotNull().joinToString(" | "))
+        if (joined.isBlank()) return Sport.FOOTBALL
+        return if (OTHER_RE.containsMatchIn(joined)) null else Sport.FOOTBALL
+    }
+
+    /** Đọc thuộc tính x-sport do playlist ghi: FOOTBALL / BASKETBALL... hoặc tên tiếng Việt ("Bóng đá"). */
+    fun fromTag(tag: String?): Sport? {
+        val t = tag?.trim().orEmpty()
+        if (t.isEmpty()) return null
+        Sport.values().firstOrNull { it.name.equals(t, ignoreCase = true) }?.let { return it }
+        return detect(t)
     }
 }
