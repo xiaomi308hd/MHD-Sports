@@ -84,7 +84,7 @@ object SourceLoader {
             val stationName = inferStationName(root.finalUrl)
             val items = parseDocument(root.text, root.finalUrl, stationName, null)
             if (items.isEmpty()) error("Nguồn đã tải nhưng không tìm thấy trận đấu/kênh có link phát")
-            val stations = items.map { it.stationKey }.distinct()
+            val stations = items.map { it.group }.distinct()
             Result(items, stations.size, stations)
         }
     }
@@ -277,8 +277,8 @@ object SourceLoader {
         val byKey = HashMap<String, MutableList<Bucket>>()
         for (ch in list) {
             val (base, tags) = splitTags(ch.name)
-            // Cùng trận nhưng khác nhà đài thì không gộp: mỗi nhà đài giữ luồng phát riêng của mình.
-            val key = ch.station.lowercase() + "|" + ch.group.lowercase() + "|" + foldName(base)
+            // Nhóm = nhà đài, nên cùng trận ở nhà đài khác không bị gộp: mỗi nhà đài giữ luồng phát riêng của mình.
+            val key = ch.group.lowercase() + "|" + foldName(base)
             val candidates = byKey.getOrPut(key) { mutableListOf() }
             val target = candidates.firstOrNull { b ->
                 val s0 = b.members.first().ch.start
@@ -561,10 +561,7 @@ object SourceLoader {
         }
     }
 
-    /**
-     * Nhà đài của một dòng #EXTINF: `x-source-name="Chuối Chiên TV"` (hoặc `x-source`), logo ở
-     * `x-source-logo` (URL tuyệt đối hoặc đường dẫn tương đối so với link M3U).
-     */
+    /** Nhóm của mỗi dòng #EXTINF lấy từ `group-title` (= tên nhà đài); không còn đọc x-source-name / x-source-logo. */
     private fun parseM3u(text: String, baseUrl: String): List<Channel> {
         val out = mutableListOf<Channel>()
         var meta: Map<String, String>? = null
@@ -586,10 +583,6 @@ object SourceLoader {
             } else if (line.isNotEmpty() && !line.startsWith("#")) {
                 val m = meta ?: continue
                 val rawName = name.ifBlank { m["tvg-name"] ?: "Kênh" }
-                val stationName = (m["x-source-name"] ?: m["x-source"]).orEmpty().trim()
-                val stationLogo = m["x-source-logo"]?.trim()?.takeIf { it.isNotBlank() }
-                    ?.let { resolveRelative(baseUrl, it) }
-                    ?: stationName.takeIf { it.isNotBlank() }?.let { Config.stationLogo(it) }
                 out += Channel(
                     name = cleanName(rawName),
                     logo = (m["tvg-logo"] ?: m["logo"])?.takeIf { it.isNotBlank() },
@@ -601,9 +594,7 @@ object SourceLoader {
                     end = parseTime(m["end"]),
                     headers = headers,
                     sport = SportDetector.fromTag(m["x-sport"] ?: m["tvg-sport"] ?: m["sport"])
-                        ?: SportDetector.detectOrFootball(rawName, m["group-title"], m["x-league"]),
-                    station = stationName,
-                    stationLogo = stationLogo
+                        ?: SportDetector.detectOrFootball(rawName, m["group-title"], m["x-league"])
                 )
                 meta = null
                 headers = linkedMapOf()

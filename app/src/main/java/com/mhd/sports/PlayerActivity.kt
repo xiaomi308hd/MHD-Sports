@@ -86,6 +86,13 @@ class PlayerActivity : AppCompatActivity() {
     // Chống treo: kẹt ở trạng thái đệm quá lâu mà không báo lỗi => kết nối lại / thử cách khác.
     private val stallWatch = Runnable { onStalled() }
 
+    // Vừa mở một luồng (Auto / HD1 / HD2) mà sau SWITCH_DELAY_MS vẫn chưa phát được hình
+    // => tự chuyển sang luồng kế tiếp. Muốn đổi thời gian chờ chỉ cần sửa SWITCH_DELAY_MS.
+    private val SWITCH_DELAY_MS = 1_500L
+    private val streamNames = listOf("Auto", "HD1", "HD2", "FHD")
+    private var armSwitch = false
+    private val switchWatch = Runnable { onSwitchTimeout() }
+
     // Đã xem được rồi thì chịu lỗi tải tạm thời lâu hơn (mất gói, đổi sóng) trước khi coi là lỗi thật;
     // chưa xem được lần nào thì giữ mức thấp để chuyển nhanh sang cách/luồng dự phòng.
     private val retryPolicy = object : DefaultLoadErrorHandlingPolicy() {
@@ -287,7 +294,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun buildStreamChips() {
         streamBox.removeAllViews()
         streamChips.clear()
-        val labels = listOf("Auto", "HD1", "HD2", "FHD")
+        val labels = streamNames
         labels.forEachIndexed { i, label ->
             val available = i < sources.size
             val chip = TextView(this).apply {
@@ -322,11 +329,13 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Mở một nguồn (luồng chính hoặc luồng dự phòng): dò link rút gọn rồi bắt đầu thử từ cách đầu tiên. */
     private suspend fun beginSource(i: Int) {
+        ui.removeCallbacks(switchWatch)
         srcIdx = i
         if (streamChips.isNotEmpty()) highlightStream()
         idx = 0
         reconnects = 0
         playedOnce = false
+        armSwitch = true
         val src = sources[i]
         attempts = buildAttempts(src.url, src.headers, listUrl)
         playUrl = src.url
@@ -372,6 +381,13 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun startAttempt() {
         ui.removeCallbacks(stallWatch)
+        ui.removeCallbacks(switchWatch)
+        if (armSwitch) {
+            armSwitch = false
+            // Chỉ hẹn giờ ở lần mở luồng đầu tiên (không áp dụng khi tự kết nối lại giữa chừng)
+            // và chỉ khi còn luồng phía sau để chuyển sang.
+            if (srcIdx < sources.size - 1) ui.postDelayed(switchWatch, SWITCH_DELAY_MS)
+        }
         player?.release()
         val a = attempts[idx]
         val counter = object : TransferListener {
@@ -442,7 +458,10 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 ui.removeCallbacks(stallWatch)
                 when (state) {
-                    Player.STATE_READY -> { playedOnce = true; reconnects = 0; view.showController() }
+                    Player.STATE_READY -> {
+                        ui.removeCallbacks(switchWatch)
+                        playedOnce = true; reconnects = 0; view.showController()
+                    }
                     Player.STATE_BUFFERING -> ui.postDelayed(stallWatch, if (playedOnce) 15_000L else 30_000L)
                 }
             }
@@ -493,6 +512,16 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    /** Hết thời gian chờ mà luồng hiện tại chưa phát được => chuyển sang luồng kế tiếp (Auto -> HD1 -> HD2 -> FHD). */
+    private fun onSwitchTimeout() {
+        if (playedOnce || srcIdx >= sources.size - 1) return
+        val next = srcIdx + 1
+        val from = streamNames.getOrElse(srcIdx) { "Luồng ${srcIdx + 1}" }
+        val to = streamNames.getOrElse(next) { "Luồng ${next + 1}" }
+        Toast.makeText(this, "$from chưa phát được, chuyển sang $to…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch { beginSource(next) }
+    }
+
     /** Kẹt ở trạng thái đệm quá lâu mà không có lỗi: coi như luồng đã treo. */
     private fun onStalled() {
         val p = player ?: return
@@ -541,6 +570,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         ui.removeCallbacks(stallWatch)
+        ui.removeCallbacks(switchWatch)
         ui.removeCallbacks(statsTick)
         player?.release()
         player = null
