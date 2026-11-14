@@ -7,6 +7,18 @@ object Config {
     /** Nguồn dữ liệu duy nhất của ứng dụng (cố định, không cho nhập link khác); tự tải lại mỗi DATA_REFRESH_MIN phút. */
     const val DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/xiaomi308hd/hinh-nen/refs/heads/main/thethao.m3u"
 
+    /** Nguồn phát thứ 2, chạy song song với nguồn mặc định; người dùng đổi qua lại trong Cài đặt. */
+    private const val SECOND_SOURCE_URL = "https://raw.githubusercontent.com/guiterhd-bit/crawapijk/refs/heads/main/playlist.m3u"
+
+    /** Một nguồn phát: chỉ hiển thị [name] trên màn hình, không bao giờ hiện link. */
+    data class DataSource(val name: String, val url: String)
+
+    /** Danh sách nguồn phát theo thứ tự hiển thị. Phần tử đầu là nguồn mặc định. */
+    val DATA_SOURCES: List<DataSource> = listOf(
+        DataSource("MiHD Sports 1", DEFAULT_SOURCE_URL),
+        DataSource("MiHD Sports 2", SECOND_SOURCE_URL)
+    )
+
     /** Repo GitHub Releases chứa APK. Chưa tự đặt vì repo phát hành APK cần được xác nhận riêng. */
     const val GITHUB_REPO = "guiterhd-bit/MHD-Sports"
 

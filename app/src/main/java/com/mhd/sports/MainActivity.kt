@@ -280,6 +280,7 @@ class MainActivity : AppCompatActivity() {
             box.addView(t, LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) })
             return t
         }
+        row("Nguồn phát: ${currentSource().name}") { dialog.dismiss(); askSource() }
         fun filterText() = if (prefs.getBoolean("filter", true)) "Lọc theo giờ: Bật" else "Lọc theo giờ: Tắt"
         row(filterText(), accent = prefs.getBoolean("filter", true)) { t ->
             val on = !prefs.getBoolean("filter", true)
@@ -303,6 +304,47 @@ class MainActivity : AppCompatActivity() {
         d.window?.setBackgroundDrawable(Glass.glass(this@MainActivity, 24f, tint = 0xF2101012.toInt()))
     }
 
+    // ---------- nguồn phát (MiHD Sports 1 / 2) ----------
+    private var sourceGen = 0
+    private fun sourceIndex() = prefs.getInt("source_idx", 0).coerceIn(0, Config.DATA_SOURCES.lastIndex)
+    private fun currentSource() = Config.DATA_SOURCES[sourceIndex()]
+
+    private fun askSource() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(6))
+        }
+        lateinit var dlg: AlertDialog
+        Config.DATA_SOURCES.forEachIndexed { i, src ->
+            val on = i == sourceIndex()
+            box.addView(TextView(this).apply {
+                text = (if (on) "✓  " else "") + src.name
+                setTextColor(Color.WHITE); textSize = 15f
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(16), dp(13), dp(16), dp(13))
+                isFocusable = true; isClickable = true
+                background = if (on) Glass.accentButton(this@MainActivity, 16f) else Glass.button(this@MainActivity, 16f)
+                setOnClickListener { dlg.dismiss(); if (i != sourceIndex()) switchSource(i) }
+            }, LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) })
+        }
+        dlg = AlertDialog.Builder(this)
+            .setTitle("Chọn nguồn phát")
+            .setView(box)
+            .setNegativeButton("Đóng", null)
+            .showGlass()
+    }
+
+    private fun switchSource(i: Int) {
+        prefs.edit().putInt("source_idx", i).apply()
+        sourceGen++            // bỏ kết quả của lần tải nguồn cũ nếu còn đang chạy
+        loadingData = false
+        all = emptyList()
+        loadedStationNames = emptyList()
+        lastSig = ""
+        lastDataRefreshAt = 0L
+        render(true)
+        load()
+    }
+
     private fun refreshDataIfDue() {
         val interval = Config.DATA_REFRESH_MIN * 60_000L
         if (!loadingData && (lastDataRefreshAt == 0L || System.currentTimeMillis() - lastDataRefreshAt >= interval)) {
@@ -312,28 +354,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun load(silent: Boolean = false) {
         if (loadingData) return
-        val url = Config.DEFAULT_SOURCE_URL
+        val src = currentSource()
+        val url = src.url
+        val gen = sourceGen
         loadingData = true
         if (!silent) spinReload(true)
         if (!silent || all.isEmpty()) tvStatus.text = "Đang tải dữ liệu nhà đài…"
         lifecycleScope.launch {
             try {
                 val result = SourceLoader.loadCatalog(url)
+                if (gen != sourceGen) return@launch
                 if (result.channels.isEmpty()) error("Nguồn không có trận đấu hoặc kênh phát hợp lệ")
                 all = result.channels
                 loadedStationNames = result.stationNames
                 lastDataRefreshAt = System.currentTimeMillis()
                 lastSig = ""
                 render(true)
-                tvStatus.text = "Đã cập nhật ${all.size} trận/kênh · ${result.stationCount} nhà đài" +
+                tvStatus.text = "${src.name} · Đã cập nhật ${all.size} trận/kênh · ${result.stationCount} nhà đài" +
                     (if (result.failedStations.isNotEmpty()) " · ${result.failedStations.size} nguồn tạm lỗi" else "") +
                     " · Tự làm mới mỗi ${Config.DATA_REFRESH_MIN} phút"
             } catch (e: Exception) {
+                if (gen != sourceGen) return@launch
                 if (all.isEmpty()) tvStatus.text = "Lỗi tải dữ liệu: ${Config.scrub(e.message)}"
                 else tvStatus.text = "Không cập nhật được · Đang dùng dữ liệu đã tải trước đó (${Config.scrub(e.message)})"
             } finally {
-                loadingData = false
-                spinReload(false)
+                if (gen == sourceGen) {
+                    loadingData = false
+                    spinReload(false)
+                }
             }
         }
     }
