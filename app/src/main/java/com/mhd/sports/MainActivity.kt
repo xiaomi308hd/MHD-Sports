@@ -392,6 +392,7 @@ class MainActivity : AppCompatActivity() {
             val stationLogo = list.firstOrNull { !it.first.groupLogo.isNullOrBlank() }?.first?.groupLogo
             if (stationLogo != null) {
                 val logoView = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                Glass.clipRound(logoView, 10f)
                 logoView.load(stationLogo)
                 head.addView(logoView, LinearLayout.LayoutParams(dp(40), dp(40)).also { it.leftMargin = dp(10) })
             }
