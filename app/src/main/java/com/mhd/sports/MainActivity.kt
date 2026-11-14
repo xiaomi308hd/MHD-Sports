@@ -138,6 +138,15 @@ class MainActivity : AppCompatActivity() {
         brand.addView(brandText, LinearLayout.LayoutParams(WRAP, WRAP).also { it.leftMargin = dp(10) })
         bar.addView(brand, LinearLayout.LayoutParams(0, WRAP, 1f))
 
+        // nút "Có bản mới · Cập nhật": nằm ngay trên thanh trên cùng, chỉ hiện khi có bản mới
+        pillUpdate = Glass.chip(this, "Có bản mới · Cập nhật").apply {
+            background = Glass.accentButton(this@MainActivity)
+            visibility = View.GONE
+            maxLines = 1
+            setOnClickListener { pending?.let { if (!downloading) confirmUpdate(it) } }
+        }
+        bar.addView(pillUpdate, LinearLayout.LayoutParams(WRAP, WRAP).also { it.rightMargin = dp(if (compact) 8 else 14) })
+
         // đồng hồ + ngày: căn phải
         val clock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
         tvDate = TextView(this).apply {
@@ -199,15 +208,6 @@ class MainActivity : AppCompatActivity() {
             isVerticalScrollBarEnabled = false; clipToPadding = false; addView(content)
         }, LinearLayout.LayoutParams(MATCH, 0, 1f))
         root.addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
-
-        // ---- thông báo bản mới: chỉ hiện ở góc khi có cập nhật ----
-        pillUpdate = Glass.chip(this, "Có bản mới · Cập nhật").apply {
-            background = Glass.accentButton(this@MainActivity)
-            visibility = View.GONE
-            setOnClickListener { pending?.let { if (!downloading) confirmUpdate(it) } }
-        }
-        root.addView(pillUpdate, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END)
-            .also { it.setMargins(0, 0, dp(18), dp(18)) })
 
         setContentView(root)
         load()
@@ -381,22 +381,22 @@ class MainActivity : AppCompatActivity() {
         orderedGroups(grouped.keys.toList()).forEach { g ->
             val list = grouped.getValue(g)
             val head = LinearLayout(this).apply {
-                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(16), 0, dp(8))
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(18), 0, dp(10))
             }
             head.addView(View(this).apply {
                 background = GradientDrawable(
                     GradientDrawable.Orientation.TOP_BOTTOM,
                     intArrayOf(Glass.AMBER, Glass.ORANGE)
                 ).also { it.cornerRadius = dp(2).toFloat() }
-            }, LinearLayout.LayoutParams(dp(4), dp(20)))
+            }, LinearLayout.LayoutParams(dp(5), dp(if (compact) 26 else 34)))
             val stationLogo = list.firstOrNull { !it.first.groupLogo.isNullOrBlank() }?.first?.groupLogo
             if (stationLogo != null) {
                 val logoView = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
                 logoView.load(stationLogo)
-                head.addView(logoView, LinearLayout.LayoutParams(dp(28), dp(28)).also { it.leftMargin = dp(9) })
+                head.addView(logoView, LinearLayout.LayoutParams(dp(40), dp(40)).also { it.leftMargin = dp(10) })
             }
             head.addView(TextView(this).apply {
-                text = g; setTextColor(Color.WHITE); textSize = 18f
+                text = g; setTextColor(Color.WHITE); textSize = if (compact) 22f else 28f
                 setTypeface(typeface, Typeface.BOLD); setPadding(dp(if (stationLogo == null) 10 else 8), 0, 0, 0)
             })
             content.addView(head)
@@ -512,7 +512,7 @@ class MainActivity : AppCompatActivity() {
                 val local = Updater.localCode(this@MainActivity)
                 if (r != null && r.code > local) {
                     pending = r
-                    pillUpdate.text = "Có bản mới · Cập nhật"
+                    pillUpdate.text = if (compact) "Cập nhật" else "Có bản mới · Cập nhật"
                     pillUpdate.visibility = View.VISIBLE
                     if (manual) tvStatus.text = "Có bản mới: build ${r.code} (đang dùng build $local)"
                     // Hiện hộp thoại một lần cho mỗi bản mới để người dùng thấy ngay, không chỉ ở nút nhỏ góc dưới
@@ -549,10 +549,21 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val f = Updater.download(this@MainActivity, r.apkUrl) { pillUpdate.text = "Đang tải $it%" }
-                pillUpdate.text = if (Updater.install(this@MainActivity, f)) "Có bản mới · Cập nhật"
-                else "Bật quyền cài đặt rồi bấm lại"
+                pillUpdate.text = if (Updater.install(this@MainActivity, f)) (if (compact) "Cập nhật" else "Có bản mới · Cập nhật")
+                else (if (compact) "Cấp quyền" else "Bật quyền cài đặt rồi bấm lại")
             } catch (e: Exception) {
-                pillUpdate.text = "Lỗi tải, bấm để thử lại"
+                // Trước đây lỗi bị nuốt mất, chỉ hiện "Lỗi tải": giờ báo đúng nguyên nhân + đường dự phòng.
+                pillUpdate.text = if (compact) "Thử lại" else "Cập nhật lỗi · bấm để thử lại"
+                val detail = friendlyError(e).ifBlank { e.javaClass.simpleName }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Cập nhật không thành công")
+                    .setMessage("$detail\n\nBạn có thể thử lại, hoặc mở link APK bằng trình duyệt để tải và cài thủ công.")
+                    .setPositiveButton("Thử lại") { _, _ -> if (!downloading) doUpdate(r) }
+                    .setNeutralButton("Mở bằng trình duyệt") { _, _ ->
+                        try { Updater.openInBrowser(this@MainActivity, r.apkUrl) } catch (_: Exception) {}
+                    }
+                    .setNegativeButton("Đóng", null)
+                    .showGlass()
             } finally {
                 downloading = false
             }

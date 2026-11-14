@@ -25,6 +25,16 @@ object Updater {
     private const val VERSION_URL =
         "https://raw.githubusercontent.com/xiaomi308hd/MHD-Sports/main/version.json"
 
+    /** Client riêng để tải APK (~8 MB): timeout rộng hơn client chung vì mạng TV/điện thoại có thể chậm. */
+    private val downloadClient by lazy {
+        Net.client.newBuilder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
     data class Release(
         val code: Int,
         val name: String,
@@ -120,10 +130,30 @@ object Updater {
         val file = File(dir, "update.apk")
         val tempFile = File(dir, "update.apk.tmp")
 
+        var lastError: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                return@withContext downloadOnce(url, dir, file, tempFile, onProgress)
+            } catch (e: Exception) {
+                lastError = e
+                tempFile.delete()
+                if (attempt < 3) kotlinx.coroutines.delay(1500L * attempt)
+            }
+        }
+        throw lastError ?: IllegalStateException("Tải APK thất bại")
+    }
+
+    private suspend fun downloadOnce(
+        url: String,
+        dir: File,
+        file: File,
+        tempFile: File,
+        onProgress: (Int) -> Unit
+    ): File {
         if (tempFile.exists()) tempFile.delete()
 
         try {
-            Net.client.newCall(Net.req(url)).execute().use { response ->
+            downloadClient.newCall(Net.req(url)).execute().use { response ->
 
                 if (!response.isSuccessful) {
                     error("Tải APK thất bại: HTTP ${response.code}")
@@ -189,7 +219,7 @@ object Updater {
                 onProgress(100)
             }
 
-            file
+            return file
 
         } catch (e: Exception) {
             tempFile.delete()
@@ -241,8 +271,19 @@ object Updater {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        act.startActivity(intent)
+        try {
+            act.startActivity(intent)
+        } catch (e: android.content.ActivityNotFoundException) {
+            error("Máy không có trình cài đặt APK. Hãy dùng nút “Mở bằng trình duyệt”.")
+        }
 
         return true
+    }
+
+    /** Dự phòng: giao link APK cho trình duyệt / trình tải của hệ thống. */
+    fun openInBrowser(act: Activity, url: String) {
+        act.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 }
