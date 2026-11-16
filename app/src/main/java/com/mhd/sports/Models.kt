@@ -72,6 +72,9 @@ data class Channel(
     val groupLogo: String? = null,
     /** true: logo là logo giải/đội (vuông) => hiển thị nguyên hình, không cắt. */
     val logoFit: Boolean = false,
+    /** Logo riêng của hai đội trong một trận đấu (đọc từ API hoặc x-home-logo/x-away-logo trong M3U). */
+    val homeLogo: String? = null,
+    val awayLogo: String? = null,
     val sport: Sport? = null
 ) {
     private enum class Provider { LIVE, ENDED, UPCOMING, UNKNOWN }

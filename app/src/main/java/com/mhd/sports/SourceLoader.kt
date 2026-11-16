@@ -325,6 +325,8 @@ object SourceLoader {
                 providerStatus = b.members.firstNotNullOfOrNull { it.ch.providerStatus },
                 groupLogo = b.members.firstNotNullOfOrNull { it.ch.groupLogo },
                 logoFit = b.members.any { it.ch.logoFit },
+                homeLogo = b.members.firstNotNullOfOrNull { it.ch.homeLogo?.takeIf(String::isNotBlank) },
+                awayLogo = b.members.firstNotNullOfOrNull { it.ch.awayLogo?.takeIf(String::isNotBlank) },
                 sport = b.members.firstNotNullOfOrNull { it.ch.sport }
             )
         }
@@ -354,8 +356,15 @@ object SourceLoader {
             val teams = match.optJSONObject("teams")
             val home = teams?.optJSONObject("home")
             val away = teams?.optJSONObject("away")
-            val homeName = home?.optString("name", "").orEmpty()
-            val awayName = away?.optString("name", "").orEmpty()
+            val homeName = home?.str("name", "short_name", "shortName", "title") ?: ""
+            val awayName = away?.str("name", "short_name", "shortName", "title") ?: ""
+            // API có thể đặt URL logo ở nhiều tên trường khác nhau.
+            fun teamLogo(team: JSONObject?): String? = team?.str(
+                "logo", "crest", "badge", "image", "thumbnail", "thumb",
+                "logo_url", "logoUrl", "team_logo", "teamLogo", "image_url"
+            )?.takeIf { it.startsWith("http", true) }
+            val homeLogo = teamLogo(home)
+            val awayLogo = teamLogo(away)
             val matchName = listOf(homeName, awayName).filter { it.isNotBlank() }.joinToString(" vs ")
                 .ifBlank { match.optString("name", "Trận đấu") }
 
@@ -410,7 +419,8 @@ object SourceLoader {
 
             out += Channel(
                 name = cleanName(matchName),
-                logo = leagueLogo ?: home?.optString("logo")?.takeIf { it.startsWith("http") } ?: away?.optString("logo")?.takeIf { it.startsWith("http") },
+                // Không dùng logo giải làm logo trận: hai logo đội được hiển thị riêng.
+                logo = leagueLogo,
                 url = options.firstOrNull()?.url.orEmpty(),
                 group = stationName,
                 start = start,
@@ -421,6 +431,8 @@ object SourceLoader {
                 providerStatus = status,
                 groupLogo = stationLogo,
                 logoFit = true,
+                homeLogo = homeLogo,
+                awayLogo = awayLogo,
                 sport = sport
             )
         }
@@ -593,6 +605,8 @@ object SourceLoader {
                     start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
                     headers = headers,
+                    homeLogo = m["x-home-logo"]?.takeIf { it.startsWith("http", true) },
+                    awayLogo = m["x-away-logo"]?.takeIf { it.startsWith("http", true) },
                     sport = SportDetector.fromTag(m["x-sport"] ?: m["tvg-sport"] ?: m["sport"])
                         ?: SportDetector.detectOrFootball(rawName, m["group-title"], m["x-league"])
                 )

@@ -25,7 +25,8 @@ class ChannelAdapter(
 
     class VH(
         val card: LinearLayout, val img: ImageView, val badge: TextView,
-        val title: TextView, val sub: TextView
+        val title: TextView, val sub: TextView,
+        val teams: LinearLayout, val homeImg: ImageView, val awayImg: ImageView
     ) : RecyclerView.ViewHolder(card)
 
     private val fmt = SimpleDateFormat("HH:mm · dd/MM", Locale.getDefault())
@@ -51,6 +52,38 @@ class ChannelAdapter(
             setBackgroundColor(0xFF14110E.toInt())
         }
         thumb.addView(img, FrameLayout.LayoutParams(dp(224), dp(126)))
+
+        // Lớp hiển thị riêng logo đội nhà / đội khách cho dữ liệu trận đấu.
+        val teams = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            setBackgroundColor(0xFF171A20.toInt())
+            visibility = View.GONE
+        }
+        fun teamImage(): ImageView = ImageView(c).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF252A33.toInt())
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(dp(70), dp(70))
+        }
+        val homeImg = teamImage()
+        val awayImg = teamImage()
+        val vs = TextView(c).apply {
+            text = "VS"
+            setTextColor(0xFFFFA33A.toInt())
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(70))
+        }
+        teams.addView(homeImg)
+        teams.addView(vs)
+        teams.addView(awayImg)
+        thumb.addView(teams, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+
         val badge = TextView(c).apply {
             setTextColor(Color.WHITE); textSize = 11f
             setTypeface(typeface, Typeface.BOLD)
@@ -72,7 +105,7 @@ class ChannelAdapter(
         }
         val sub = TextView(c).apply { textSize = 12f; setPadding(dp(4), dp(2), dp(4), 0) }
         card.addView(title); card.addView(sub)
-        return VH(card, img, badge, title, sub)
+        return VH(card, img, badge, title, sub, teams, homeImg, awayImg)
     }
 
     override fun onBindViewHolder(h: VH, position: Int) {
@@ -82,8 +115,34 @@ class ChannelAdapter(
         val pad = if (ch.logoFit) (18 * h.card.resources.displayMetrics.density).toInt() else 0
         h.img.scaleType = if (ch.logoFit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
         h.img.setPadding(pad, pad, pad, pad)
-        if (ch.logo.isNullOrBlank()) { h.img.dispose(); h.img.setImageDrawable(null) }
-        else h.img.load(ch.logo) { crossfade(true) }
+        val hasTeamLogos = !ch.homeLogo.isNullOrBlank() || !ch.awayLogo.isNullOrBlank()
+        if (hasTeamLogos) {
+            h.img.dispose()
+            h.img.visibility = View.GONE
+            h.teams.visibility = View.VISIBLE
+            h.homeImg.dispose()
+            h.awayImg.dispose()
+            h.homeImg.setImageDrawable(null)
+            h.awayImg.setImageDrawable(null)
+            ch.homeLogo?.takeIf { it.isNotBlank() }?.let { h.homeImg.load(it) { crossfade(true) } }
+            ch.awayLogo?.takeIf { it.isNotBlank() }?.let { h.awayImg.load(it) { crossfade(true) } }
+        } else {
+            h.teams.visibility = View.GONE
+            h.img.visibility = View.VISIBLE
+            h.homeImg.dispose()
+            h.awayImg.dispose()
+            if (ch.logo.isNullOrBlank()) {
+                h.img.dispose()
+                h.img.setImageDrawable(null)
+                h.img.setBackgroundColor(0xFF14110E.toInt())
+            } else {
+                h.img.load(ch.logo) {
+                    crossfade(true)
+                    error(android.graphics.drawable.ColorDrawable(0xFF252A33.toInt()))
+                    placeholder(android.graphics.drawable.ColorDrawable(0xFF14110E.toInt()))
+                }
+            }
+        }
 
         val d = h.card.resources.displayMetrics.density
         val bg = GradientDrawable().apply { cornerRadius = 8 * d }
