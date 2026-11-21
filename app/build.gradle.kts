@@ -1,4 +1,3 @@
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -20,8 +19,8 @@ android {
         versionName = "1.$code"
     }
 
-    // Production signing values are supplied by GitHub Actions from repository Secrets.
-    // The private keystore is decoded only for the build and is never committed.
+    // Release signing credentials are provided by GitHub Actions Secrets.
+    // Never store the keystore or passwords in the repository.
     val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
     val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
     val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
@@ -29,9 +28,9 @@ android {
 
     signingConfigs {
         create("production") {
-            storeFile = file(releaseKeystorePath ?: "missing-sportsplayer.jks")
+            storeFile = file(releaseKeystorePath ?: "missing-release-keystore.jks")
             storePassword = releaseKeystorePassword ?: ""
-            keyAlias = releaseKeyAlias ?: "sportsplayer"
+            keyAlias = releaseKeyAlias ?: "mhd-sports"
             keyPassword = releaseKeyPassword ?: ""
         }
     }
