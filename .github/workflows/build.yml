@@ -34,6 +34,7 @@ jobs:
           gradle-version: 8.7
 
       - name: Calculate next versionCode
+        id: version
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
@@ -46,7 +47,7 @@ jobs:
           except Exception:
               pass
           run_number = int(os.environ["GITHUB_RUN_NUMBER"])
-          # The result is always newer than the last published build 147 and run number.
+          # Keep the existing version progression logic.
           next_code = max(current, run_number, 141) + 1
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
               env.write(f"VERSION_CODE={next_code}\n")
@@ -57,7 +58,7 @@ jobs:
           print(f"Previous versionCode={current}; workflow run={run_number}; next={next_code}")
           PYCODE
 
-      - name: Decode and validate production keystore
+      - name: Decode and validate new production keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -66,15 +67,19 @@ jobs:
           set -euo pipefail
           test -n "$KEYSTORE_BASE64" || { echo "::error::Missing secret KEYSTORE_BASE64"; exit 1; }
           test -n "$KEYSTORE_PASSWORD" || { echo "::error::Missing secret KEYSTORE_PASSWORD"; exit 1; }
-          test "$KEY_ALIAS" = "sportsplayer" || { echo "::error::KEY_ALIAS must be sportsplayer"; exit 1; }
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > sportsplayer.jks
-          test -s sportsplayer.jks
-          keytool -list -keystore sportsplayer.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" >/dev/null
-          echo "Original production keystore and sportsplayer alias verified."
+          test -n "$KEY_ALIAS" || { echo "::error::Missing secret KEY_ALIAS"; exit 1; }
+          test "$KEY_ALIAS" = "mhd-sports" || { echo "::error::KEY_ALIAS must be mhd-sports"; exit 1; }
+
+          KEYSTORE_PATH="$RUNNER_TEMP/mhd-sports-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" >/dev/null
+
+          echo "ANDROID_KEYSTORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "New production keystore and mhd-sports alias verified."
 
       - name: Build production Release APK
         env:
-          ANDROID_KEYSTORE_FILE: sportsplayer.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -111,7 +116,7 @@ jobs:
 
             - Package: com.mhd.sports
             - versionCode: ${{ steps.version.outputs.version_code }}
-            - Signed with the original production sportsplayer keystore.
+            - Signed with the new mhd-sports production keystore.
           make_latest: true
           files: app/build/outputs/apk/release/app-release.apk
           fail_on_unmatched_files: true
@@ -147,4 +152,4 @@ jobs:
 
       - name: Remove signing keystore
         if: always()
-        run: rm -f sportsplayer.jks
+        run: rm -f "$RUNNER_TEMP/mhd-sports-release.jks"
