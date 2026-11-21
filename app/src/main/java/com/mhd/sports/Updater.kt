@@ -53,7 +53,7 @@ object Updater {
      * Đọc version.json từ GitHub.
      * Không cần GitHub Releases.
      */
-    suspend fun latest(): Release? = withContext(Dispatchers.IO) {
+    suspend fun latest(expectedPackageName: String): Release? = withContext(Dispatchers.IO) {
 
         val request = Request.Builder()
             .url("$VERSION_URL?t=${System.currentTimeMillis()}")
@@ -83,6 +83,11 @@ object Updater {
                 val name = json.optString("versionName", "").trim()
                 val apkUrl = json.optString("apkUrl", "").trim()
                 val notes = json.optString("notes", "").trim()
+                val applicationId = json.optString("applicationId", "").trim()
+
+                if (applicationId.isNotBlank() && applicationId != expectedPackageName) {
+                    error("Bản cập nhật không dành cho ứng dụng $expectedPackageName")
+                }
 
                 if (code <= 0) {
                     error("versionCode không hợp lệ trong version.json")

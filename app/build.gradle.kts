@@ -20,12 +20,26 @@ android {
         versionName = "1.$code"
     }
 
+    // Production signing values are supplied by GitHub Actions from repository Secrets.
+    // The private keystore is decoded only for the build and is never committed.
+    val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
+    val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+    signingConfigs {
+        create("production") {
+            storeFile = file(releaseKeystorePath ?: "missing-sportsplayer.jks")
+            storePassword = releaseKeystorePassword ?: ""
+            keyAlias = releaseKeyAlias ?: "sportsplayer"
+            keyPassword = releaseKeyPassword ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Public/test builds: use Android's automatically generated debug key.
-            // Replace with a private release keystore before publishing production updates.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("production")
         }
     }
 

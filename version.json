@@ -2,5 +2,6 @@
   "versionCode": 147,
   "versionName": "1.147",
   "apkUrl": "https://github.com/xiaomi308hd/MHD-Sports/releases/download/build-147/app-release.apk",
-  "notes": "Add files via upload"
+  "notes": "Add files via upload",
+  "applicationId": "com.mhd.sports"
 }

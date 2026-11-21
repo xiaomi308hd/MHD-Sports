@@ -557,7 +557,7 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             try {
-                val r = Updater.latest()
+                val r = Updater.latest(packageName)
                 val local = Updater.localCode(this@MainActivity)
                 if (r != null && r.code > local) {
                     pending = r
