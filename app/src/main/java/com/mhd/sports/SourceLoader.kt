@@ -433,6 +433,8 @@ object SourceLoader {
                 logoFit = true,
                 homeLogo = homeLogo,
                 awayLogo = awayLogo,
+                homeName = homeName,
+                awayName = awayName,
                 sport = sport
             )
         }
@@ -604,9 +606,12 @@ object SourceLoader {
                         ?.takeIf { it.startsWith("http", true) } ?: Config.stationLogo(m["group-title"] ?: "Khác"),
                     start = parseTime(m["start"] ?: m["tvg-start"]) ?: timeFromName(rawName),
                     end = parseTime(m["end"]),
+                    detail = m["x-league"]?.takeIf { it.isNotBlank() },
                     headers = headers,
                     homeLogo = m["x-home-logo"]?.takeIf { it.startsWith("http", true) },
                     awayLogo = m["x-away-logo"]?.takeIf { it.startsWith("http", true) },
+                    homeName = m["x-home-name"]?.takeIf { it.isNotBlank() },
+                    awayName = m["x-away-name"]?.takeIf { it.isNotBlank() },
                     sport = SportDetector.fromTag(m["x-sport"] ?: m["tvg-sport"] ?: m["sport"])
                         ?: SportDetector.detectOrFootball(rawName, m["group-title"], m["x-league"])
                 )

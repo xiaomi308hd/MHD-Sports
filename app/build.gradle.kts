@@ -8,21 +8,6 @@ android {
     namespace = "com.mhd.sports"
     compileSdk = 34
 
-    signingConfigs {
-        create("release") {
-            storeFile = rootProject.file("mhd.jks")
-
-            storePassword = System.getenv("KEYSTORE_PASSWORD")
-                ?: error("Missing KEYSTORE_PASSWORD")
-
-            keyAlias = System.getenv("KEY_ALIAS")
-                ?: error("Missing KEY_ALIAS")
-
-            keyPassword = System.getenv("KEY_PASSWORD")
-                ?: error("Missing KEY_PASSWORD")
-        }
-    }
-
     defaultConfig {
         applicationId = "com.mhd.sports"
         minSdk = 21
@@ -38,7 +23,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // Public/test builds: use Android's automatically generated debug key.
+            // Replace with a private release keystore before publishing production updates.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

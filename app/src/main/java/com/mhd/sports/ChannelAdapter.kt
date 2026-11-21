@@ -18,168 +18,142 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Match card: two team crests, VS, team names, league and kickoff. */
 class ChannelAdapter(
     private val items: List<Pair<Channel, State>>,
     private val onClick: (Channel) -> Unit
 ) : RecyclerView.Adapter<ChannelAdapter.VH>() {
 
     class VH(
-        val card: LinearLayout, val img: ImageView, val badge: TextView,
-        val title: TextView, val sub: TextView,
-        val teams: LinearLayout, val homeImg: ImageView, val awayImg: ImageView
+        val card: LinearLayout,
+        val homeImg: ImageView,
+        val awayImg: ImageView,
+        val homeName: TextView,
+        val awayName: TextView,
+        val badge: TextView,
+        val league: TextView,
+        val kickoff: TextView
     ) : RecyclerView.ViewHolder(card)
 
-    private val fmt = SimpleDateFormat("HH:mm · dd/MM", Locale.getDefault())
     private val hm = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val day = SimpleDateFormat("dd/MM", Locale.getDefault())
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val c = parent.context
         fun dp(v: Int) = (v * c.resources.displayMetrics.density).toInt()
+        fun text(size: Float, color: Int, bold: Boolean = false) = TextView(c).apply {
+            textSize = size
+            setTextColor(color)
+            if (bold) setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
 
         val card = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             isFocusable = true
             isClickable = true
-            setPadding(dp(6), dp(6), dp(6), dp(8))
-            layoutParams = RecyclerView.LayoutParams(dp(236), ViewGroup.LayoutParams.WRAP_CONTENT)
-                .also { it.rightMargin = dp(12) }
-            background = Glass.card(c)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = RecyclerView.LayoutParams(dp(244), dp(174)).also { it.rightMargin = dp(10) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(15).toFloat()
+                setColor(0xE9081B3A.toInt())
+                setStroke(dp(1), 0xFF16A9FF.toInt())
+            }
         }
-        val thumb = FrameLayout(c)
-        Glass.clipRound(thumb, 13f)
-        val img = ImageView(c).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(0xFF14110E.toInt())
-        }
-        thumb.addView(img, FrameLayout.LayoutParams(dp(224), dp(126)))
 
-        // Lớp hiển thị riêng logo đội nhà / đội khách cho dữ liệu trận đấu.
-        val teams = LinearLayout(c).apply {
+        val crestRow = FrameLayout(c).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(88))
+        }
+        fun crest(): ImageView = ImageView(c).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(0xFF10294D.toInt())
+            }
+        }
+        val home = crest()
+        val away = crest()
+        crestRow.addView(home, FrameLayout.LayoutParams(dp(66), dp(66), Gravity.START or Gravity.CENTER_VERTICAL).also { it.leftMargin = dp(12) })
+        crestRow.addView(away, FrameLayout.LayoutParams(dp(66), dp(66), Gravity.END or Gravity.CENTER_VERTICAL).also { it.rightMargin = dp(12) })
+        val vs = text(15f, 0xFFFFFFFF.toInt(), true).apply { text = "VS" }
+        crestRow.addView(vs, FrameLayout.LayoutParams(dp(48), dp(66), Gravity.CENTER))
+
+        val badge = text(10f, Color.WHITE, true).apply {
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0xFFFF5A00.toInt()) }
+        }
+        crestRow.addView(badge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.TOP))
+
+        val names = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(24), dp(8), dp(24), dp(8))
-            setBackgroundColor(0xFF171A20.toInt())
-            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34))
         }
-        fun teamImage(): ImageView = ImageView(c).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(0xFF252A33.toInt())
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            layoutParams = LinearLayout.LayoutParams(dp(70), dp(70))
-        }
-        val homeImg = teamImage()
-        val awayImg = teamImage()
-        val vs = TextView(c).apply {
-            text = "VS"
-            setTextColor(0xFFFFA33A.toInt())
-            textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(70))
-        }
-        teams.addView(homeImg)
-        teams.addView(vs)
-        teams.addView(awayImg)
-        thumb.addView(teams, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
+        val homeName = text(11f, Color.WHITE, true).apply { setPadding(dp(2), 0, dp(2), 0) }
+        val awayName = text(11f, Color.WHITE, true).apply { setPadding(dp(2), 0, dp(2), 0) }
+        names.addView(homeName, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        names.addView(awayName, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
 
-        val badge = TextView(c).apply {
-            setTextColor(Color.WHITE); textSize = 11f
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(dp(8), dp(3), dp(8), dp(3))
-            compoundDrawablePadding = dp(5)
+        val divider = View(c).apply {
+            setBackgroundColor(0x557BBCEB)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).also { it.topMargin = dp(3); it.bottomMargin = dp(4) }
+        }
+        val footer = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(26))
         }
-        thumb.addView(badge, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.END or Gravity.TOP
-        ).also { it.setMargins(0, dp(7), dp(7), 0) })
-        card.addView(thumb)
+        val league = text(10f, 0xFFDDEBFF.toInt(), true).apply { gravity = Gravity.CENTER_VERTICAL or Gravity.START; maxLines = 1 }
+        val kickoff = text(10f, 0xFFFFD36A.toInt(), true).apply { gravity = Gravity.CENTER_VERTICAL or Gravity.END; maxLines = 1 }
+        footer.addView(league, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        footer.addView(kickoff, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        val title = TextView(c).apply {
-            setTextColor(Color.WHITE); textSize = 13f; maxLines = 2
-            setTypeface(typeface, Typeface.BOLD)
-            ellipsize = TextUtils.TruncateAt.END; setPadding(dp(4), dp(7), dp(4), 0)
-        }
-        val sub = TextView(c).apply { textSize = 12f; setPadding(dp(4), dp(2), dp(4), 0) }
-        card.addView(title); card.addView(sub)
-        return VH(card, img, badge, title, sub, teams, homeImg, awayImg)
+        card.addView(crestRow)
+        card.addView(names)
+        card.addView(divider)
+        card.addView(footer)
+        return VH(card, home, away, homeName, awayName, badge, league, kickoff)
     }
 
     override fun onBindViewHolder(h: VH, position: Int) {
-        val (ch, st) = items[position]
-        h.title.text = ch.name
-        bindSub(h, ch, st)
-        val pad = if (ch.logoFit) (18 * h.card.resources.displayMetrics.density).toInt() else 0
-        h.img.scaleType = if (ch.logoFit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
-        h.img.setPadding(pad, pad, pad, pad)
-        val hasTeamLogos = !ch.homeLogo.isNullOrBlank() || !ch.awayLogo.isNullOrBlank()
-        if (hasTeamLogos) {
-            h.img.dispose()
-            h.img.visibility = View.GONE
-            h.teams.visibility = View.VISIBLE
-            h.homeImg.dispose()
-            h.awayImg.dispose()
-            h.homeImg.setImageDrawable(null)
-            h.awayImg.setImageDrawable(null)
-            ch.homeLogo?.takeIf { it.isNotBlank() }?.let { h.homeImg.load(it) { crossfade(true) } }
-            ch.awayLogo?.takeIf { it.isNotBlank() }?.let { h.awayImg.load(it) { crossfade(true) } }
-        } else {
-            h.teams.visibility = View.GONE
-            h.img.visibility = View.VISIBLE
-            h.homeImg.dispose()
-            h.awayImg.dispose()
-            if (ch.logo.isNullOrBlank()) {
-                h.img.dispose()
-                h.img.setImageDrawable(null)
-                h.img.setBackgroundColor(0xFF14110E.toInt())
-            } else {
-                h.img.load(ch.logo) {
-                    crossfade(true)
-                    error(android.graphics.drawable.ColorDrawable(0xFF252A33.toInt()))
-                    placeholder(android.graphics.drawable.ColorDrawable(0xFF14110E.toInt()))
-                }
-            }
-        }
+        val (ch, state) = items[position]
+        val teams = ch.name.substringBefore('|').split(Regex("\\s+vs\\s+", RegexOption.IGNORE_CASE), limit = 2)
+        h.homeName.text = ch.homeName?.takeIf { it.isNotBlank() }
+            ?: teams.getOrNull(0)?.trim().orEmpty().ifBlank { ch.name.take(24) }
+        h.awayName.text = ch.awayName?.takeIf { it.isNotBlank() }
+            ?: teams.getOrNull(1)?.trim().orEmpty()
+        h.homeImg.dispose(); h.awayImg.dispose()
+        h.homeImg.setImageDrawable(null); h.awayImg.setImageDrawable(null)
+        ch.homeLogo?.takeIf { it.startsWith("http", true) }?.let { h.homeImg.load(it) { crossfade(true) } }
+        ch.awayLogo?.takeIf { it.startsWith("http", true) }?.let { h.awayImg.load(it) { crossfade(true) } }
 
-        val d = h.card.resources.displayMetrics.density
-        val bg = GradientDrawable().apply { cornerRadius = 8 * d }
-        h.badge.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null)
-        when (st) {
+        val leagueName = ch.detail?.substringBefore("·")?.trim().orEmpty()
+        h.league.text = leagueName.ifBlank { ch.sport?.label ?: ch.group }
+        h.kickoff.text = ch.start?.let { "${hm.format(Date(it))} · ${day.format(Date(it))}" } ?: ""
+
+        when (state) {
             State.LIVE -> {
-                bg.orientation = GradientDrawable.Orientation.LEFT_RIGHT
-                bg.setColors(intArrayOf(0xFFFF3D00.toInt(), 0xFFFF8A00.toInt()))
-                h.badge.text = "TRỰC TIẾP"
-                val dot = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.WHITE); setSize((7 * d).toInt(), (7 * d).toInt())
-                }
-                h.badge.setCompoundDrawablesWithIntrinsicBounds(dot, null, null, null)
+                h.badge.text = "● TRỰC TIẾP"
+                h.badge.background = GradientDrawable().apply { cornerRadius = 30f; setColor(0xFFFF5200.toInt()) }
                 h.badge.visibility = View.VISIBLE
             }
             State.UPCOMING -> {
-                bg.setColor(0xB3000000.toInt())
                 h.badge.text = ch.start?.let { hm.format(Date(it)) } ?: "SẮP DIỄN RA"
+                h.badge.background = GradientDrawable().apply { cornerRadius = 30f; setColor(0xFF0757B8.toInt()) }
                 h.badge.visibility = View.VISIBLE
             }
             State.ENDED -> {
-                bg.setColor(0xB3555555.toInt()); h.badge.text = "ĐÃ XONG"; h.badge.visibility = View.VISIBLE
+                h.badge.text = "ĐÃ KẾT THÚC"
+                h.badge.background = GradientDrawable().apply { cornerRadius = 30f; setColor(0xFF596579.toInt()) }
+                h.badge.visibility = View.VISIBLE
             }
             State.ALWAYS -> h.badge.visibility = View.GONE
         }
-        h.badge.background = bg
         h.card.setOnClickListener { onClick(ch) }
-    }
-
-    private fun bindSub(h: VH, ch: Channel, st: State) {
-        val parts = mutableListOf<String>()
-        ch.detail?.takeIf { it.isNotBlank() }?.let { parts += it }
-        ch.start?.let { s -> parts += fmt.format(Date(s)) }
-        if (ch.start == null && st == State.LIVE) parts += "Đang phát trực tiếp"
-        if (ch.start == null && st == State.UPCOMING) parts += "Chưa có giờ phát"
-        h.sub.text = parts.joinToString("  |  ")
-        h.sub.setTextColor(if (st == State.LIVE) 0xFFFF9A3C.toInt() else Glass.TEXT2)
     }
 
     override fun getItemCount() = items.size

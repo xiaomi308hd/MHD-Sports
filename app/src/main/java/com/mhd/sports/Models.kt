@@ -75,6 +75,8 @@ data class Channel(
     /** Logo riêng của hai đội trong một trận đấu (đọc từ API hoặc x-home-logo/x-away-logo trong M3U). */
     val homeLogo: String? = null,
     val awayLogo: String? = null,
+    val homeName: String? = null,
+    val awayName: String? = null,
     val sport: Sport? = null
 ) {
     private enum class Provider { LIVE, ENDED, UPCOMING, UNKNOWN }
