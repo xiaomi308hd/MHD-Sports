@@ -3,6 +3,7 @@ package com.mhd.sports
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -57,10 +58,18 @@ class ChannelAdapter(
             isClickable = true
             setPadding(dp(8), dp(8), dp(8), dp(8))
             layoutParams = RecyclerView.LayoutParams(dp(244), dp(174)).also { it.rightMargin = dp(10) }
-            background = GradientDrawable().apply {
+            // Android TV: làm nổi bật rõ thẻ đang được remote chọn.
+            // Trước đây thẻ chỉ có nền/viền cố định nên trạng thái focus khó nhận biết.
+            fun cardShape(fill: Int, stroke: Int, strokeWidth: Int) = GradientDrawable().apply {
                 cornerRadius = dp(15).toFloat()
-                setColor(0xE9081B3A.toInt())
-                setStroke(dp(1), 0xFF16A9FF.toInt())
+                setColor(fill)
+                setStroke(dp(strokeWidth), stroke)
+            }
+            background = StateListDrawable().apply {
+                val focused = cardShape(0xFF25496D.toInt(), 0xFFFFB347.toInt(), 4)
+                addState(intArrayOf(android.R.attr.state_focused), focused)
+                addState(intArrayOf(android.R.attr.state_pressed), focused)
+                addState(intArrayOf(), cardShape(0xE9081B3A.toInt(), 0xFF16A9FF.toInt(), 1))
             }
         }
 
