@@ -15,6 +15,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.load
+import okhttp3.Headers
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -137,8 +138,27 @@ class ChannelAdapter(
             ?: teams.getOrNull(1)?.trim().orEmpty()
         h.homeImg.dispose(); h.awayImg.dispose()
         h.homeImg.setImageDrawable(null); h.awayImg.setImageDrawable(null)
-        ch.homeLogo?.takeIf { it.startsWith("http", true) }?.let { h.homeImg.load(it) { crossfade(true) } }
-        ch.awayLogo?.takeIf { it.startsWith("http", true) }?.let { h.awayImg.load(it) { crossfade(true) } }
+        // Logo có thể nằm trên máy chủ yêu cầu Referer giống nguồn M3U.
+        // Dùng lại header đã đọc từ #EXTVLCOPT (ví dụ http-referrer của Bóng 69).
+        fun loadTeamLogo(view: ImageView, url: String?, requestHeaders: Map<String, String>) {
+            url?.takeIf { it.startsWith("http", true) }?.let { imageUrl ->
+                val imageHeaders = Headers.Builder().apply {
+                    add("User-Agent", Net.UA)
+                    requestHeaders.forEach { (name, value) ->
+                        if (name.isNotBlank() && value.isNotBlank()) {
+                            removeAll(name)
+                            add(name, value)
+                        }
+                    }
+                }.build()
+                view.load(imageUrl) {
+                    crossfade(true)
+                    headers(imageHeaders)
+                }
+            }
+        }
+        loadTeamLogo(h.homeImg, ch.homeLogo, ch.headers)
+        loadTeamLogo(h.awayImg, ch.awayLogo, ch.headers)
 
         val leagueName = ch.detail?.substringBefore("·")?.trim().orEmpty()
         h.league.text = leagueName.ifBlank { ch.sport?.label ?: ch.group }
